@@ -5,6 +5,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -22,6 +23,8 @@ class VideoJsBridge(private val context: Context) {
     fun detach() {
         webView?.removeJavascriptInterface("AndroidBridge")
         webView = null
+        scope.coroutineContext[Job]?.cancel()
+        onVideoActiveChanged = null
     }
 
     fun injectScript() {

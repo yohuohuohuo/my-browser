@@ -97,9 +97,11 @@ class BrowserFragment : Fragment() {
 
         videoBridge.attach(binding.webView)
         videoBridge.onVideoActiveChanged = { active ->
-            viewModel.setVideoActive(active)
-            binding.videoGestureOverlay.visibility =
-                if (active) View.VISIBLE else View.GONE
+            if (view != null) {
+                viewModel.setVideoActive(active)
+                binding.videoGestureOverlay.visibility =
+                    if (active) View.VISIBLE else View.GONE
+            }
         }
     }
 
