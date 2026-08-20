@@ -10,6 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yohuohuohuo.browser.databinding.FragmentBrowserBinding
+import com.yohuohuohuo.browser.ua.UaManager
 import com.yohuohuohuo.browser.util.SearchEngine
 import com.yohuohuohuo.browser.util.UrlUtils
 import com.yohuohuohuo.browser.web.BrowserWebChromeClient
@@ -23,6 +24,7 @@ class BrowserFragment : Fragment() {
 
     private val viewModel: BrowserViewModel by viewModels()
     private val webViewManager = WebViewManager()
+    private val uaManager by lazy { UaManager(requireContext()) }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -44,6 +46,14 @@ class BrowserFragment : Fragment() {
         binding.urlBarView.setOnClickListener {
             binding.urlBarView.focusInput()
         }
+        binding.urlBarView.onUaButtonClicked = {
+            val isDesktop = uaManager.toggle()
+            binding.webView.settings.userAgentString = uaManager.getUa()
+            viewModel.setUaMode(if (isDesktop) UaMode.DESKTOP else UaMode.MOBILE)
+            if (!viewModel.uiState.value.showStartup) {
+                binding.webView.reload()
+            }
+        }
     }
 
     private fun setupWebView() {
@@ -60,6 +70,8 @@ class BrowserFragment : Fragment() {
             onShowCustomView = { /* handled in Task 7 */ },
             onHideCustomView = { /* handled in Task 7 */ }
         )
+        binding.webView.settings.userAgentString = uaManager.getUa()
+        viewModel.setUaMode(if (uaManager.isDesktop()) UaMode.DESKTOP else UaMode.MOBILE)
     }
 
     private fun observeState() {
@@ -73,6 +85,7 @@ class BrowserFragment : Fragment() {
                     } else {
                         binding.urlBarView.setUrl(state.currentUrl)
                     }
+                    binding.urlBarView.setUaIcon(state.uaMode == UaMode.DESKTOP)
                 }
             }
         }

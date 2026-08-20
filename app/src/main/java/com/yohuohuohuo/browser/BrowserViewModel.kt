@@ -5,11 +5,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class UaMode { MOBILE, DESKTOP }
+
 data class UiState(
     val currentUrl: String = "",
     val pageTitle: String = "",
     val loadingProgress: Int = 0,
     val isLoading: Boolean = false,
+    val uaMode: UaMode = UaMode.MOBILE,
     val showStartup: Boolean = true,
     val toolbarVisible: Boolean = true,
     val videoActive: Boolean = false,
@@ -65,5 +68,9 @@ class BrowserViewModel : ViewModel() {
 
     fun setVideoActive(active: Boolean) {
         _uiState.value = _uiState.value.copy(videoActive = active)
+    }
+
+    fun setUaMode(mode: UaMode) {
+        _uiState.value = _uiState.value.copy(uaMode = mode)
     }
 }
