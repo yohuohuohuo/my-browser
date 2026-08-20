@@ -12,6 +12,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yohuohuohuo.browser.databinding.FragmentBrowserBinding
+import com.yohuohuohuo.browser.gesture.VideoJsBridge
 import com.yohuohuohuo.browser.ua.UaManager
 import com.yohuohuohuo.browser.util.SearchEngine
 import com.yohuohuohuo.browser.util.UrlUtils
@@ -27,6 +28,7 @@ class BrowserFragment : Fragment() {
     private val viewModel: BrowserViewModel by viewModels()
     private val webViewManager = WebViewManager()
     private val uaManager by lazy { UaManager(requireContext()) }
+    private val videoBridge by lazy { VideoJsBridge(requireContext()) }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -81,6 +83,7 @@ class BrowserFragment : Fragment() {
             onPageStarted = { url -> viewModel.onPageStarted(url) },
             onPageFinished = { webView, url ->
                 viewModel.onPageFinished(url, webView.title ?: "")
+                videoBridge.injectScript()
             },
             onReceivedError = { msg, url -> viewModel.onReceivedError(msg, url) }
         )
@@ -91,6 +94,13 @@ class BrowserFragment : Fragment() {
         )
         binding.webView.settings.userAgentString = uaManager.getUa()
         viewModel.setUaMode(if (uaManager.isDesktop()) UaMode.DESKTOP else UaMode.MOBILE)
+
+        videoBridge.attach(binding.webView)
+        videoBridge.onVideoActiveChanged = { active ->
+            viewModel.setVideoActive(active)
+            binding.videoGestureOverlay.visibility =
+                if (active) View.VISIBLE else View.GONE
+        }
     }
 
     private fun observeState() {
@@ -144,6 +154,7 @@ class BrowserFragment : Fragment() {
     fun goBack(): Boolean = webViewManager.goBack(binding.webView)
 
     override fun onDestroyView() {
+        videoBridge.detach()
         webViewManager.destroy(binding.webView)
         _binding = null
         super.onDestroyView()
