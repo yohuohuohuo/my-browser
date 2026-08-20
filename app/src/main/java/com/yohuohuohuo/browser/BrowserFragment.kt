@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -54,6 +56,23 @@ class BrowserFragment : Fragment() {
                 binding.webView.reload()
             }
         }
+
+        // Handle window insets for immersive status bar
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            binding.urlBarView.setTopPadding(statusBarHeight)
+            insets
+        }
+
+        // Toolbar auto-hide on scroll
+        binding.webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            val delta = scrollY - oldScrollY
+            if (delta > 10 && binding.urlBarView.translationY == 0f) {
+                hideToolbar()
+            } else if (delta < -10 && scrollY <= 0) {
+                showToolbar()
+            }
+        }
     }
 
     private fun setupWebView() {
@@ -98,6 +117,22 @@ class BrowserFragment : Fragment() {
             SearchEngine.buildSearchUrl(text)
         }
         loadUrl(url)
+    }
+
+    private fun hideToolbar() {
+        binding.urlBarView.animate()
+            .translationY(-binding.urlBarView.height.toFloat())
+            .setDuration(200)
+            .start()
+        viewModel.setToolbarVisible(false)
+    }
+
+    private fun showToolbar() {
+        binding.urlBarView.animate()
+            .translationY(0f)
+            .setDuration(200)
+            .start()
+        viewModel.setToolbarVisible(true)
     }
 
     fun loadUrl(url: String) {

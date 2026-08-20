@@ -52,4 +52,13 @@ class UrlBarView @JvmOverloads constructor(
         binding.urlInput.requestFocus()
         binding.urlInput.selectAll()
     }
+
+    fun setTopPadding(pixels: Int) {
+        binding.root.setPadding(
+            binding.root.paddingLeft,
+            pixels + resources.getDimensionPixelSize(R.dimen.url_bar_vertical_padding),
+            binding.root.paddingRight,
+            resources.getDimensionPixelSize(R.dimen.url_bar_vertical_padding)
+        )
+    }
 }
