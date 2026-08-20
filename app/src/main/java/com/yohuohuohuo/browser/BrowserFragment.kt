@@ -103,6 +103,7 @@ class BrowserFragment : Fragment() {
                     if (active) View.VISIBLE else View.GONE
             }
         }
+        binding.videoGestureOverlay.attach(videoBridge)
     }
 
     private fun observeState() {
