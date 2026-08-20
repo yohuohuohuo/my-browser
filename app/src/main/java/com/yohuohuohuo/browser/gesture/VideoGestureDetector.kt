@@ -40,9 +40,9 @@ class VideoGestureDetector(
             } else {
                 val startX = e1?.x ?: 0f
                 if (startX < width / 2) {
-                    listener.onLeftVerticalScroll(-distanceY)
+                    listener.onLeftVerticalScroll(distanceY)
                 } else {
-                    listener.onRightVerticalScroll(-distanceY)
+                    listener.onRightVerticalScroll(distanceY)
                 }
             }
             return true
