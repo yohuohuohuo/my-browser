@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -29,6 +30,7 @@ class BrowserFragment : Fragment() {
     private val webViewManager = WebViewManager()
     private val uaManager by lazy { UaManager(requireContext()) }
     private val videoBridge by lazy { VideoJsBridge(requireContext()) }
+    private var customView: View? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -75,6 +77,14 @@ class BrowserFragment : Fragment() {
                 showToolbar()
             }
         }
+
+        // Retry button on error page
+        binding.errorView.retryButton.setOnClickListener {
+            val url = viewModel.uiState.value.error?.failingUrl ?: viewModel.uiState.value.currentUrl
+            if (url.isNotBlank()) {
+                loadUrl(url)
+            }
+        }
     }
 
     private fun setupWebView() {
@@ -89,8 +99,24 @@ class BrowserFragment : Fragment() {
         )
         binding.webView.webChromeClient = BrowserWebChromeClient(
             onProgressChanged = { progress -> viewModel.onProgressChanged(progress) },
-            onShowCustomView = { /* handled in Task 7 */ },
-            onHideCustomView = { /* handled in Task 7 */ }
+            onShowCustomView = { view ->
+                customView = view
+                (activity?.window?.decorView as? FrameLayout)?.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
+                binding.urlBarView.visibility = View.GONE
+            },
+            onHideCustomView = {
+                customView?.let {
+                    (activity?.window?.decorView as? FrameLayout)?.removeView(it)
+                }
+                customView = null
+                binding.urlBarView.visibility = View.VISIBLE
+            }
         )
         binding.webView.settings.userAgentString = uaManager.getUa()
         viewModel.setUaMode(if (uaManager.isDesktop()) UaMode.DESKTOP else UaMode.MOBILE)
@@ -118,6 +144,13 @@ class BrowserFragment : Fragment() {
                         binding.urlBarView.setUrl(state.currentUrl)
                     }
                     binding.urlBarView.setUaIcon(state.uaMode == UaMode.DESKTOP)
+                    val errorBinding = binding.errorView
+                    if (state.error != null) {
+                        errorBinding.root.visibility = View.VISIBLE
+                        errorBinding.errorMessage.text = state.error.message
+                    } else {
+                        errorBinding.root.visibility = View.GONE
+                    }
                 }
             }
         }
@@ -155,6 +188,19 @@ class BrowserFragment : Fragment() {
     fun canGoBack(): Boolean = binding.webView.canGoBack()
 
     fun goBack(): Boolean = webViewManager.goBack(binding.webView)
+
+    fun onBackPressed(): Boolean {
+        if (binding.webView.canGoBack()) {
+            binding.webView.goBack()
+            return true
+        }
+        if (!viewModel.uiState.value.showStartup) {
+            viewModel.showStartup()
+            binding.webView.loadUrl("about:blank")
+            return true
+        }
+        return false
+    }
 
     override fun onDestroyView() {
         videoBridge.detach()

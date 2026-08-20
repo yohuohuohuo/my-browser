@@ -32,4 +32,13 @@ class MainActivity : AppCompatActivity() {
                 .commit()
         }
     }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        val fragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
+        if (fragment is BrowserFragment && fragment.onBackPressed()) {
+            return
+        }
+        super.onBackPressed()
+    }
 }
