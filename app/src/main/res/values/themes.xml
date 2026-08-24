@@ -6,5 +6,7 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@color/white</item>
+        <!-- 消除 windowBackground 与子布局背景的过度绘制 -->
+        <item name="android:windowBackground">@null</item>
     </style>
 </resources>

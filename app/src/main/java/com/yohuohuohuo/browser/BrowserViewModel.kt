@@ -34,7 +34,8 @@ class BrowserViewModel : ViewModel() {
             isLoading = true,
             loadingProgress = 0,
             error = null,
-            showStartup = false
+            showStartup = false,
+            videoActive = false
         )
     }
 
@@ -43,7 +44,9 @@ class BrowserViewModel : ViewModel() {
             currentUrl = url,
             pageTitle = title,
             isLoading = false,
-            loadingProgress = 100
+            loadingProgress = 100,
+            error = null,
+            showStartup = false
         )
     }
 
@@ -59,7 +62,16 @@ class BrowserViewModel : ViewModel() {
     }
 
     fun showStartup() {
-        _uiState.value = _uiState.value.copy(showStartup = true, currentUrl = "", pageTitle = "")
+        _uiState.value = _uiState.value.copy(
+            showStartup = true,
+            currentUrl = "",
+            pageTitle = "",
+            loadingProgress = 0,
+            isLoading = false,
+            toolbarVisible = true,
+            videoActive = false,
+            error = null
+        )
     }
 
     fun setToolbarVisible(visible: Boolean) {

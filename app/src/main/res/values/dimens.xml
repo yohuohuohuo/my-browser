@@ -1,4 +1,3 @@
 <resources>
     <dimen name="url_bar_vertical_padding">8dp</dimen>
-    <dimen name="url_bar_height">56dp</dimen>
 </resources>

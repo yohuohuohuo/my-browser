@@ -13,11 +13,15 @@ class UrlBarView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs) {
 
     private val binding = ViewUrlBarBinding.inflate(LayoutInflater.from(context), this, true)
+    private var isEditing = false
 
     var onUrlSubmitted: ((String) -> Unit)? = null
     var onUaButtonClicked: (() -> Unit)? = null
 
     init {
+        binding.urlInput.setOnFocusChangeListener { _, hasFocus ->
+            isEditing = hasFocus
+        }
         binding.urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 val text = binding.urlInput.text.toString()
@@ -33,7 +37,9 @@ class UrlBarView @JvmOverloads constructor(
     }
 
     fun setUrl(url: String) {
-        binding.urlInput.setText(url)
+        if (!isEditing) {
+            binding.urlInput.setText(url)
+        }
     }
 
     fun setTitle(title: String) {
@@ -49,15 +55,22 @@ class UrlBarView @JvmOverloads constructor(
     }
 
     fun focusInput() {
+        isEditing = true
         binding.urlInput.requestFocus()
         binding.urlInput.selectAll()
     }
 
+    fun exitEditing() {
+        isEditing = false
+        binding.urlInput.clearFocus()
+    }
+
     fun setTopPadding(pixels: Int) {
-        binding.root.setPadding(
-            binding.root.paddingLeft,
+        // 使用 setPaddingRelative 以支持 RTL（paddingStart / paddingEnd）
+        binding.root.setPaddingRelative(
+            binding.root.paddingStart,
             pixels + resources.getDimensionPixelSize(R.dimen.url_bar_vertical_padding),
-            binding.root.paddingRight,
+            binding.root.paddingEnd,
             resources.getDimensionPixelSize(R.dimen.url_bar_vertical_padding)
         )
     }

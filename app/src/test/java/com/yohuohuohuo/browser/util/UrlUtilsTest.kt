@@ -23,6 +23,58 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `isUrl returns true for localhost`() {
+        assertTrue(UrlUtils.isUrl("localhost"))
+        assertTrue(UrlUtils.isUrl("localhost:8080"))
+        assertTrue(UrlUtils.isUrl("http://localhost/path"))
+    }
+
+    @Test
+    fun `isUrl returns true for IPv4 address`() {
+        assertTrue(UrlUtils.isUrl("192.168.1.1"))
+        assertTrue(UrlUtils.isUrl("10.0.0.1"))
+        assertTrue(UrlUtils.isUrl("127.0.0.1"))
+        assertTrue(UrlUtils.isUrl("http://192.168.1.1/path"))
+    }
+
+    @Test
+    fun `isUrl returns true for URL with port`() {
+        assertTrue(UrlUtils.isUrl("example.com:8080"))
+        assertTrue(UrlUtils.isUrl("192.168.1.1:3000"))
+        assertTrue(UrlUtils.isUrl("https://example.com:443/path"))
+    }
+
+    @Test
+    fun `isUrl returns true for bracketed IPv6 with optional port`() {
+        assertTrue(UrlUtils.isUrl("[::1]"))
+        assertTrue(UrlUtils.isUrl("http://[2001:db8::1]:8443/path"))
+    }
+
+    @Test
+    fun `isUrl returns false for malformed IPv6 host`() {
+        assertFalse(UrlUtils.isUrl("http://[::1"))
+        assertFalse(UrlUtils.isUrl("http://[::1]:abc"))
+    }
+
+    @Test
+    fun `isUrl returns true for URL with user info`() {
+        assertTrue(UrlUtils.isUrl("user:pass@example.com"))
+        assertTrue(UrlUtils.isUrl("http://user:pass@example.com/path"))
+    }
+
+    @Test
+    fun `isUrl returns false for invalid port`() {
+        assertFalse(UrlUtils.isUrl("example.com:99999"))
+        assertFalse(UrlUtils.isUrl("example.com:abc"))
+    }
+
+    @Test
+    fun `isUrl returns false for invalid IPv4`() {
+        assertFalse(UrlUtils.isUrl("256.1.1.1"))
+        assertFalse(UrlUtils.isUrl("1.2.3"))
+    }
+
+    @Test
     fun `isUrl returns false for plain text`() {
         assertFalse(UrlUtils.isUrl("hello world"))
         assertFalse(UrlUtils.isUrl("android tutorial"))
@@ -36,7 +88,8 @@ class UrlUtilsTest {
 
     @Test
     fun `isUrl returns false for single word without dot`() {
-        assertFalse(UrlUtils.isUrl("localhost"))
+        assertFalse(UrlUtils.isUrl("android"))
+        assertFalse(UrlUtils.isUrl("browser"))
     }
 
     @Test
@@ -48,6 +101,12 @@ class UrlUtilsTest {
     fun `normalizeUrl keeps existing scheme`() {
         assertEquals("http://example.com", UrlUtils.normalizeUrl("http://example.com"))
         assertEquals("https://example.com", UrlUtils.normalizeUrl("https://example.com"))
+    }
+
+    @Test
+    fun `normalizeUrl is case insensitive for scheme`() {
+        assertEquals("HTTP://example.com", UrlUtils.normalizeUrl("HTTP://example.com"))
+        assertEquals("HTTPS://example.com", UrlUtils.normalizeUrl("HTTPS://example.com"))
     }
 
     @Test
