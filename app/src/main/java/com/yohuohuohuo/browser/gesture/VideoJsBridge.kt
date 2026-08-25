@@ -122,6 +122,28 @@ class VideoJsBridge(context: Context) {
         }
     }
 
+    fun getActiveVideoDimensions(callback: (Float, Float) -> Unit) {
+        val wv = webView ?: return
+        val attachGeneration = this.attachGeneration
+        val pageGeneration = this.pageGeneration
+        wv.evaluateJavascript("window.__videoBridge.getActiveVideoDimensions();") { result ->
+            if (this.webView !== wv ||
+                attachGeneration != this.attachGeneration ||
+                pageGeneration != this.pageGeneration
+            ) {
+                return@evaluateJavascript
+            }
+            val value = result?.trim()?.removeSurrounding("\"") ?: return@evaluateJavascript
+            val parts = value.split(',')
+            if (parts.size != 2) return@evaluateJavascript
+            val width = parts[0].toFloatOrNull() ?: return@evaluateJavascript
+            val height = parts[1].toFloatOrNull() ?: return@evaluateJavascript
+            if (width > 0f && height > 0f && width.isFinite() && height.isFinite()) {
+                callback(width, height)
+            }
+        }
+    }
+
     @JavascriptInterface
     fun onVideoActive(generation: Long) {
         if (generation != pageGeneration) return

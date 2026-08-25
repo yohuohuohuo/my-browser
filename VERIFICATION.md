@@ -2,7 +2,7 @@
 
 ## 最新验证快照
 
-- 验证日期：2026-08-24
+- 验证日期：2026-08-25
 - 工作树：`feature/yobrowser-impl`，包含未提交改动
 - 运行环境：macOS 本地 Gradle/Android SDK；无可用 ADB 设备
 
@@ -16,9 +16,9 @@
 ./gradlew testDebugUnitTest assembleDebug assembleRelease lint
 ```
 
-结果：`BUILD SUCCESSFUL`，`101 actionable tasks: 2 executed, 99 up-to-date`。
+结果：`BUILD SUCCESSFUL`，`101 actionable tasks: 30 executed, 71 up-to-date`。
 
-- JVM 单测：66 tests，0 failures，0 errors。
+- JVM 单测：84 tests，0 failures，0 errors。
 - Debug 构建：通过，产物为 `app/build/outputs/apk/debug/app-debug.apk`。
 - Release 构建：通过，R8/resource shrinking 通过，产物为 `app/build/outputs/apk/release/app-release-unsigned.apk`。
 - Lint：0 errors，34 warnings。
@@ -43,7 +43,7 @@ git diff --check
 adb devices
 ```
 
-结果：ADB server 无法启动，日志包含 `could not install *smartsocket* listener: Operation not permitted`，因此没有真实设备或 emulator 可用于安装和交互验证。
+结果：2026-08-24 再次执行时 ADB server 无法启动，日志包含 `could not install *smartsocket* listener: Operation not permitted`，因此没有真实设备或 emulator 可用于安装和交互验证。
 
 未验证项目包括：
 
@@ -51,6 +51,10 @@ adb devices
 - CSS `getBoundingClientRect()`、`WebView.scale` 与 MotionEvent 坐标的设备适配。
 - 视频播放、长按、双击、seek、亮度/音量、滚动后的 bounds 更新。
 - 全屏 custom view、系统栏、返回键、页面历史的真实交互。
+- 全屏横屏/竖屏视频的真实自动旋转，以及退出全屏后的方向恢复。
+- 连续网页滚动期间的 GPU/WebView 实际重影表现，以及 300ms 防抖和触摸生命周期保护在不同系统导航模式下的实际时序。
+- Home 按钮在真实设备上的点击区域、返回启动页行为、启动页隐藏地址栏、搜索框清空，以及网页加载进度条在地址栏隐藏/显示和真实网页加载过程中的位置与动画表现。
+- 不同 Android System WebView、网页脚本和输入控件类型下，页面输入框是否都能通过触摸建立输入法连接；主页按钮清空地址栏后的真实焦点和键盘状态。
 - SSL/HTTP 错误页面和 renderer gone 后的实际 WebView 重建。
 - API 26、不同 density、横竖屏和不同系统 WebView 版本。
 

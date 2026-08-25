@@ -16,11 +16,15 @@ class UrlBarView @JvmOverloads constructor(
     private var isEditing = false
 
     var onUrlSubmitted: ((String) -> Unit)? = null
+    var onHomeButtonClicked: (() -> Unit)? = null
     var onUaButtonClicked: (() -> Unit)? = null
 
     init {
         binding.urlInput.setOnFocusChangeListener { _, hasFocus ->
             isEditing = hasFocus
+        }
+        binding.homeButton.setOnClickListener {
+            onHomeButtonClicked?.invoke()
         }
         binding.urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -63,6 +67,12 @@ class UrlBarView @JvmOverloads constructor(
     fun exitEditing() {
         isEditing = false
         binding.urlInput.clearFocus()
+    }
+
+    fun clearUrl() {
+        isEditing = false
+        binding.urlInput.clearFocus()
+        binding.urlInput.text.clear()
     }
 
     fun setTopPadding(pixels: Int) {

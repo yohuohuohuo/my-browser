@@ -30,15 +30,49 @@ class BrowserWebViewTest {
         )
     }
 
+    @Test
+    fun `touch state callback reports a forwarded touch lifecycle`() {
+        val webView = RecordingBrowserWebView(RuntimeEnvironment.getApplication())
+        val states = mutableListOf<Boolean>()
+        webView.onTouchStateChanged = { states += it }
+
+        webView.onTouchEvent(event(MotionEvent.ACTION_DOWN, 0f, 0f))
+        webView.onTouchEvent(event(MotionEvent.ACTION_UP, 0f, 0f))
+
+        assertEquals(listOf(true, false), states)
+    }
+
+    @Test
+    fun `normal touch keeps the full lifecycle when webview down is not handled`() {
+        val webView = RecordingBrowserWebView(RuntimeEnvironment.getApplication())
+        webView.dispatchResult = { false }
+        val handled = mutableListOf<Boolean>()
+
+        handled += webView.onTouchEvent(event(MotionEvent.ACTION_DOWN, 0f, 0f))
+        handled += webView.onTouchEvent(event(MotionEvent.ACTION_MOVE, 0f, -80f))
+        handled += webView.onTouchEvent(event(MotionEvent.ACTION_UP, 0f, -80f))
+
+        assertEquals(listOf(true, true, true), handled)
+        assertEquals(
+            listOf(
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_MOVE,
+                MotionEvent.ACTION_UP
+            ),
+            webView.forwardedActions
+        )
+    }
+
     private fun event(action: Int, x: Float, y: Float): MotionEvent =
         MotionEvent.obtain(0, 0, action, x, y, 0)
 
     private class RecordingBrowserWebView(context: Context) : BrowserWebView(context) {
         val forwardedActions = mutableListOf<Int>()
+        var dispatchResult: (Int) -> Boolean = { true }
 
         override fun dispatchToWebView(event: MotionEvent): Boolean {
             forwardedActions += event.actionMasked
-            return true
+            return dispatchResult(event.actionMasked)
         }
     }
 }

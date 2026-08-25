@@ -1,6 +1,8 @@
 package com.yohuohuohuo.browser
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -14,8 +16,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yohuohuohuo.browser.databinding.FragmentBrowserBinding
 import com.yohuohuohuo.browser.gesture.VideoJsBridge
+import com.yohuohuohuo.browser.gesture.VideoOrientation
 import com.yohuohuohuo.browser.ua.UaManager
 import com.yohuohuohuo.browser.ui.BrowserWebView
+import com.yohuohuohuo.browser.ui.BrowserLayoutMetrics
 import com.yohuohuohuo.browser.util.SearchEngine
 import com.yohuohuohuo.browser.util.UrlUtils
 import com.yohuohuohuo.browser.web.BrowserWebChromeClient
@@ -35,8 +39,13 @@ class BrowserFragment : Fragment() {
     private var customView: View? = null
     private var webChromeClient: BrowserWebChromeClient? = null
     private var toolbarHidden = false
+    private var toolbarHiddenBeforeFullscreen: Boolean? = null
+    private var statusBarInset = 0
     private var fullscreenOverlayParent: ViewGroup? = null
     private var fullscreenOverlayIndex = -1
+    private val toolbarVisibilityHandler = Handler(Looper.getMainLooper())
+    private var toolbarVisibilityRunnable: Runnable? = null
+    private var webViewTouchActive = false
 
     private val currentWebView: BrowserWebView
         get() = activeWebView ?: binding.webView
@@ -54,7 +63,11 @@ class BrowserFragment : Fragment() {
         setupWebView()
         observeState()
         binding.startupView.onSearchSubmitted = { query ->
+            binding.startupView.clearInput()
             handleInput(query)
+        }
+        binding.urlBarView.onHomeButtonClicked = {
+            showStartupPage()
         }
         binding.urlBarView.onUrlSubmitted = { text ->
             binding.urlBarView.exitEditing()
@@ -73,9 +86,13 @@ class BrowserFragment : Fragment() {
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            val statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            binding.urlBarView.setTopPadding(statusBarHeight)
+            statusBarInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            binding.urlBarView.setTopPadding(statusBarInset)
+            updateWebViewContentTopInset()
             insets
+        }
+        binding.urlBarView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateWebViewContentTopInset()
         }
 
         binding.errorView.retryButton.setOnClickListener {
@@ -89,16 +106,26 @@ class BrowserFragment : Fragment() {
     private fun setupWebView() {
         val webView = currentWebView
         webViewManager.configure(webView)
+        webView.onTouchStateChanged = { active ->
+            webViewTouchActive = active
+            if (active) {
+                cancelPendingToolbarVisibility()
+            } else {
+                reschedulePendingToolbarVisibility()
+            }
+        }
         webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             val delta = scrollY - oldScrollY
-            if (delta > 10 && !toolbarHidden) {
-                hideToolbar()
-            } else if (delta < -10 && toolbarHidden) {
-                showToolbar()
+            if (delta > TOOLBAR_SCROLL_THRESHOLD) {
+                requestToolbarVisibility(hidden = true)
+            } else if (delta < -TOOLBAR_SCROLL_THRESHOLD) {
+                requestToolbarVisibility(hidden = false)
             }
         }
         webView.webViewClient = BrowserWebViewClient(
             onPageStartedCallback = { url ->
+                cancelPendingToolbarVisibility()
+                webViewTouchActive = false
                 videoBridge.beginNavigation()
                 resetVideoGestureState()
                 if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
@@ -129,7 +156,10 @@ class BrowserFragment : Fragment() {
         val chromeClient = BrowserWebChromeClient(
             onProgressChangedCallback = { progress -> viewModel.onProgressChanged(progress) },
             onShowCustomViewCallback = { view ->
+                cancelPendingToolbarVisibility()
+                webViewTouchActive = false
                 customView = view
+                toolbarHiddenBeforeFullscreen = toolbarHidden
                 val decor = activity?.window?.decorView as? FrameLayout
                 (view.parent as? ViewGroup)?.removeView(view)
                 decor?.addView(
@@ -155,8 +185,16 @@ class BrowserFragment : Fragment() {
                 binding.urlBarView.animate().cancel()
                 binding.urlBarView.visibility = View.GONE
                 (activity as? MainActivity)?.setFullscreen(true)
+                videoBridge.getActiveVideoDimensions { width, height ->
+                    if (customView === view) {
+                        val orientation = VideoOrientation.fromDimensions(width, height)
+                        (activity as? MainActivity)?.setFullscreen(true, orientation)
+                    }
+                }
             },
             onHideCustomViewCallback = {
+                cancelPendingToolbarVisibility()
+                webViewTouchActive = false
                 val overlay = _binding?.videoGestureOverlay
                 overlay?.exitFullscreenTouchMode()
                 overlay?.visibility =
@@ -183,8 +221,13 @@ class BrowserFragment : Fragment() {
                 customView = null
                 _binding?.let {
                     it.urlBarView.visibility = View.VISIBLE
-                    showToolbar()
+                    if (toolbarHiddenBeforeFullscreen == true) {
+                        hideToolbar()
+                    } else {
+                        showToolbar()
+                    }
                 }
+                toolbarHiddenBeforeFullscreen = null
                 (activity as? MainActivity)?.setFullscreen(false)
             }
         )
@@ -241,6 +284,7 @@ class BrowserFragment : Fragment() {
 
     private fun recreateWebViewAfterRendererGone(didCrash: Boolean) {
         if (!isAdded || _binding == null) return
+        cancelPendingToolbarVisibility()
         val oldWebView = activeWebView ?: return
         val state = viewModel.uiState.value
         val urlToRestore = state.currentUrl
@@ -251,6 +295,8 @@ class BrowserFragment : Fragment() {
 
         videoBridge.detach()
         binding.videoGestureOverlay.detach()
+        oldWebView.onTouchStateChanged = null
+        webViewTouchActive = false
         webViewManager.destroy(oldWebView)
         binding.webViewContainer.removeView(oldWebView)
 
@@ -276,11 +322,17 @@ class BrowserFragment : Fragment() {
                 viewModel.uiState.collect { state ->
                     binding.startupView.visibility =
                         if (state.showStartup) View.VISIBLE else View.GONE
+                    binding.urlBarView.visibility =
+                        if (state.showStartup) View.GONE else View.VISIBLE
                     if (state.showStartup) {
+                        binding.urlBarView.clearUrl()
                         binding.startupView.focusInput()
                     } else {
                         binding.urlBarView.setUrl(state.currentUrl)
                     }
+                    binding.loadingProgress.progress = state.loadingProgress.coerceIn(0, 100)
+                    binding.loadingProgress.visibility =
+                        if (state.isLoading) View.VISIBLE else View.GONE
                     binding.urlBarView.setUaIcon(state.uaMode == UaMode.DESKTOP)
                     val errorBinding = binding.errorView
                     if (state.error != null) {
@@ -305,20 +357,80 @@ class BrowserFragment : Fragment() {
 
     private fun hideToolbar() {
         toolbarHidden = true
+        updateWebViewContentTopInset()
         binding.urlBarView.animate()
-            .translationY(-binding.urlBarView.height.toFloat())
+            .translationY(BrowserLayoutMetrics.toolbarHideTranslation(binding.urlBarView.height))
             .setDuration(200)
             .start()
         viewModel.setToolbarVisible(false)
     }
 
+    private fun requestToolbarVisibility(hidden: Boolean) {
+        if (hidden == toolbarHidden) {
+            cancelPendingToolbarVisibility()
+            return
+        }
+
+        toolbarVisibilityRunnable?.let(toolbarVisibilityHandler::removeCallbacks)
+        val runnable = object : Runnable {
+            override fun run() {
+                if (toolbarVisibilityRunnable !== this) return
+                if (webViewTouchActive) {
+                    toolbarVisibilityHandler.postDelayed(this, TOOLBAR_SCROLL_IDLE_DELAY_MS)
+                    return
+                }
+                toolbarVisibilityRunnable = null
+                if (hidden && !toolbarHidden) {
+                    hideToolbar()
+                } else if (!hidden && toolbarHidden) {
+                    showToolbar()
+                }
+            }
+        }
+        toolbarVisibilityRunnable = runnable
+        toolbarVisibilityHandler.postDelayed(runnable, TOOLBAR_SCROLL_IDLE_DELAY_MS)
+    }
+
+    private fun reschedulePendingToolbarVisibility() {
+        val runnable = toolbarVisibilityRunnable ?: return
+        toolbarVisibilityHandler.removeCallbacks(runnable)
+        toolbarVisibilityHandler.postDelayed(runnable, TOOLBAR_SCROLL_IDLE_DELAY_MS)
+    }
+
+    private fun cancelPendingToolbarVisibility() {
+        toolbarVisibilityRunnable?.let(toolbarVisibilityHandler::removeCallbacks)
+        toolbarVisibilityRunnable = null
+    }
+
     private fun showToolbar() {
         toolbarHidden = false
+        updateWebViewContentTopInset()
         binding.urlBarView.animate()
             .translationY(0f)
             .setDuration(200)
             .start()
         viewModel.setToolbarVisible(true)
+    }
+
+    private fun updateWebViewContentTopInset() {
+        if (_binding == null) return
+        val topInset = BrowserLayoutMetrics.contentTopInset(
+            statusBarInset = statusBarInset,
+            toolbarHeight = binding.urlBarView.height,
+            toolbarHidden = toolbarHidden
+        )
+        val container = binding.webViewContainer
+        val layoutParams = container.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (layoutParams.topMargin != topInset) {
+            layoutParams.topMargin = topInset
+            container.layoutParams = layoutParams
+        }
+        val progressLayoutParams = binding.loadingProgress.layoutParams as? FrameLayout.LayoutParams
+            ?: return
+        if (progressLayoutParams.topMargin != topInset) {
+            progressLayoutParams.topMargin = topInset
+            binding.loadingProgress.layoutParams = progressLayoutParams
+        }
     }
 
     fun loadUrl(url: String) {
@@ -340,23 +452,33 @@ class BrowserFragment : Fragment() {
             return true
         }
         if (!viewModel.uiState.value.showStartup) {
-            // 启动页只是覆盖当前 WebView，旧页面的 JS 仍可能异步回调；
-            // 先推进 generation，避免它重新激活视频手势层。
-            videoBridge.beginNavigation()
-            resetVideoGestureState()
-            viewModel.showStartup()
-            // 启动页覆盖 WebView 即可，不再 load about:blank，避免 onPageStarted
-            // 把刚写入的 showStartup 状态改回 false。
-            currentWebView.stopLoading()
+            showStartupPage()
             return true
         }
         return false
     }
 
+    private fun showStartupPage() {
+        cancelPendingToolbarVisibility()
+        binding.urlBarView.clearUrl()
+        // 启动页只是覆盖当前 WebView，旧页面的 JS 仍可能异步回调；
+        // 先推进 generation，避免它重新激活视频手势层。
+        videoBridge.beginNavigation()
+        resetVideoGestureState()
+        viewModel.showStartup()
+        // 启动页覆盖 WebView 即可，不再 load about:blank，避免 onPageStarted
+        // 把刚写入的 showStartup 状态改回 false。
+        currentWebView.stopLoading()
+        showToolbar()
+    }
+
     override fun onDestroyView() {
+        cancelPendingToolbarVisibility()
         webChromeClient?.hideCustomViewFromHost()
         webChromeClient = null
         customView = null
+        activeWebView?.onTouchStateChanged = null
+        webViewTouchActive = false
         binding.videoGestureOverlay.detach()
         videoBridge.detach()
         webViewManager.destroy(currentWebView)
@@ -372,5 +494,7 @@ class BrowserFragment : Fragment() {
 
     private companion object {
         const val ABOUT_BLANK = "about:blank"
+        const val TOOLBAR_SCROLL_THRESHOLD = 10
+        const val TOOLBAR_SCROLL_IDLE_DELAY_MS = 300L
     }
 }

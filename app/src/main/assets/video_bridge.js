@@ -54,6 +54,25 @@
         };
     }
 
+    function findFullscreenVideo() {
+        var fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+        if (!fullscreenElement) return null;
+        if (fullscreenElement.tagName === 'VIDEO') return fullscreenElement;
+        if (!fullscreenElement.querySelectorAll) return null;
+        var videos = fullscreenElement.querySelectorAll('video');
+        var largestVideo = null;
+        var largestArea = 0;
+        videos.forEach(function(v) {
+            var rect = v.getBoundingClientRect();
+            var area = rect.width * rect.height;
+            if (area > largestArea) {
+                largestArea = area;
+                largestVideo = v;
+            }
+        });
+        return largestVideo;
+    }
+
     function notifyVideoBounds(bounds) {
         if (!callbacks.onBounds || !bounds) return;
         if (lastBounds &&
@@ -176,6 +195,19 @@
         getDuration: function() {
             var v = findActiveVideo();
             return v && !isNaN(v.duration) ? v.duration : 0;
+        },
+        getActiveVideoDimensions: function() {
+            var v = findFullscreenVideo() || activeVideo || findActiveVideo();
+            if (!v) return "";
+            var width = Number(v.videoWidth);
+            var height = Number(v.videoHeight);
+            if (!(width > 0) || !(height > 0)) {
+                var rect = v.getBoundingClientRect();
+                width = rect.width;
+                height = rect.height;
+            }
+            if (!(width > 0) || !(height > 0)) return "";
+            return width + "," + height;
         },
         setCallbacks: function(onActive, onInactive, onBounds) {
             callbacks.onActive = onActive;

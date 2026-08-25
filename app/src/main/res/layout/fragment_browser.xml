@@ -29,7 +29,18 @@
     <com.yohuohuohuo.browser.ui.UrlBarView
         android:id="@+id/urlBarView"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+    <ProgressBar
+        android:id="@+id/loadingProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressTint="@color/accent"
+        android:visibility="gone" />
 
     <com.yohuohuohuo.browser.ui.VideoGestureOverlay
         android:id="@+id/videoGestureOverlay"

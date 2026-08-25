@@ -14,10 +14,11 @@ open class BrowserWebView @JvmOverloads constructor(
 ) : WebView(context, attrs, defStyleAttr) {
 
     var gestureHandler: ((MotionEvent) -> Boolean)? = null
+    var onTouchStateChanged: ((Boolean) -> Unit)? = null
     private var webViewTouchActive = false
 
-    // 普通 ACTION_UP 仍交给 WebView.super.onTouchEvent 处理点击；只有自定义
-    // detector 已进入手势态时才提前消费，因此这里不会绕过 WebView 的 click。
+    // 普通事件始终交给 WebView 处理；只有自定义 detector 已接管时才提前消费。
+    // 即使 WebView 对单个事件返回 false，也要保持当前触摸序列，避免滑动被截断。
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (gestureHandler?.invoke(event) == true) {
@@ -26,16 +27,30 @@ open class BrowserWebView @JvmOverloads constructor(
                 cancel.action = MotionEvent.ACTION_CANCEL
                 dispatchToWebView(cancel)
                 cancel.recycle()
-                webViewTouchActive = false
+                updateTouchState(false)
             }
             return true
         }
+
+        val wasTouchActive = webViewTouchActive
         val handled = dispatchToWebView(event)
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> webViewTouchActive = handled
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> webViewTouchActive = false
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                updateTouchState(true)
+                true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                updateTouchState(false)
+                handled || wasTouchActive
+            }
+            else -> handled || wasTouchActive
         }
-        return handled
+    }
+
+    private fun updateTouchState(active: Boolean) {
+        if (webViewTouchActive == active) return
+        webViewTouchActive = active
+        onTouchStateChanged?.invoke(active)
     }
 
     protected open fun dispatchToWebView(event: MotionEvent): Boolean = super.onTouchEvent(event)
@@ -43,7 +58,7 @@ open class BrowserWebView @JvmOverloads constructor(
     fun dispatchNativeTap(down: MotionEvent, up: MotionEvent) {
         dispatchToWebView(down)
         dispatchToWebView(up)
-        webViewTouchActive = false
+        updateTouchState(false)
     }
 
     override fun performClick(): Boolean {

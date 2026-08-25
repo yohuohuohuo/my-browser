@@ -2,11 +2,11 @@
 
 ## 快照
 
-- 更新时间：2026-08-24
+- 更新时间：2026-08-25
 - 仓库：`/Users/qiuyupan/git_workspace/my-browser`
 - 分支：`feature/yobrowser-impl`
-- 最后提交：`c1e6973 test: add unit tests for UrlUtils and SearchEngine`
-- 工作树：非 clean。当前工作树包含上一轮项目实现、修复、测试和本次接管文档，尚未提交。
+- 最后提交：`c9b7923 feat: Update UI components and improve accessibility`
+- 工作树：非 clean。当前工作树包含上一轮项目实现、修复、测试、接管文档和本次 UI/全屏修复，尚未提交。
 - 接管结论：当前实现可构建和通过 JVM/Lint，但还不能称为已发布或已完成真机验收的 Android 浏览器。
 
 ## 当前已完成能力
@@ -15,6 +15,9 @@
 
 - 单 Activity + 单 Fragment 的浏览器主流程。
 - 启动页、URL/search 输入、百度搜索 URL、地址栏编辑态和 UA 移动端/桌面端切换。
+- 地址栏左侧 Home 按钮返回启动页，以及网页加载进度条在地址栏底部/网页顶部的自适应定位。
+- 主页启动页不显示顶部地址栏；从主页搜索后清空启动页搜索框，进入网页后恢复地址栏。
+- WebView 显式开启普通/触摸焦点能力，并保持普通网页触摸从按下到抬起的完整事件序列。
 - WebView JavaScript/DOM storage、媒体用户手势限制、缓存、缩放和生命周期销毁。
 - 主 frame 加载错误、HTTP 错误、SSL 错误拒绝、错误页重试。
 - WebView renderer gone 后重建 WebView 并恢复当前 URL。
@@ -22,6 +25,54 @@
 - 视频长按 3x、水平 seek、双击播放切换、左右垂直亮度/音量调节、反馈层和 pending gesture 清理。
 - Release R8/resource shrinking、JavaScript bridge ProGuard 保留规则。
 - `UrlUtils`、`BrowserViewModel`、`BrowserWebView`、视频 detector/bridge/overlay、UA、WebChrome/WebViewClient 的 JVM 单测。
+
+## 本次修复：内容安全区与视频方向
+
+- `BrowserFragment` 根据状态栏 inset 和地址栏可见状态更新 `webViewContainer` 的 `topMargin`；地址栏可见时正文从地址栏下方开始，隐藏后正文只保留状态栏安全区。
+- 地址栏隐藏时整体移出屏幕，不再停留在状态栏区域；WebView 正文在隐藏态仍保留状态栏安全区。
+- WebView 滚动方向触发地址栏显示/隐藏时使用 300ms 主线程空闲防抖；手指仍处于 WebView 触摸生命周期时不改变 viewport，降低慢速连续滚动重布局造成重影/抖动的风险。
+- `video_bridge.js` 和 `VideoJsBridge` 提供当前活动视频的 intrinsic dimensions（无 metadata 时回退到可见 rect）；全屏进入后由 `MainActivity` 请求横屏或竖屏，退出全屏恢复 `SCREEN_ORIENTATION_UNSPECIFIED`。
+- 新增 `BrowserLayoutMetricsTest`、`VideoOrientationTest`、`VideoJsBridgeDimensionsTest`、`MainActivityTest` 和 `BrowserWebViewTest` 回归覆盖；本次全量 JVM 单测为 77 tests，0 failures/errors。
+
+本次修改文件：
+
+- `app/src/main/java/com/yohuohuohuo/browser/MainActivity.kt`
+- `app/src/main/java/com/yohuohuohuo/browser/BrowserFragment.kt`
+- `app/src/main/java/com/yohuohuohuo/browser/gesture/VideoJsBridge.kt`
+- `app/src/main/java/com/yohuohuohuo/browser/gesture/VideoOrientation.kt`
+- `app/src/main/java/com/yohuohuohuo/browser/ui/BrowserLayoutMetrics.kt`
+- `app/src/main/assets/video_bridge.js`
+- `app/src/main/java/com/yohuohuohuo/browser/ui/UrlBarView.kt`
+- `app/src/main/res/layout/view_url_bar.xml`
+- `app/src/main/res/layout/fragment_browser.xml`
+- `app/src/main/res/drawable/ic_home.xml`
+- 对应 `app/src/test` 回归测试文件
+
+## 本次功能：主页按钮与网页加载进度条
+
+- `UrlBarView` 在地址栏左侧新增 Home 按钮，与 URL 输入框、UA 按钮保持同一行；点击后复用启动页返回流程，停止当前加载并清理旧页面的视频状态。
+- `BrowserFragment` 使用现有 `BrowserWebChromeClient`/`BrowserViewModel` 的 `isLoading` 和 `loadingProgress` 状态控制横向进度条；地址栏可见时进度条位于地址栏底部，地址栏隐藏时位于状态栏安全区下方的网页顶部。
+- `UrlBarViewTest` 覆盖 Home 按钮回调，`MainActivityTest` 覆盖进度条存在、最大值和地址栏底部定位；全量 JVM 单测为 79 tests，0 failures/errors。
+
+## 本次修复：网页输入法与主页地址栏清空
+
+- `BrowserWebView` 在未被视频手势接管时始终把普通触摸序列转发给 WebView；即使 WebView 对单个事件返回 `false`，也不会丢失后续 MOVE/UP，避免链接点击和页面滚动互相干扰。
+- `WebViewManager` 显式开启 WebView 的普通焦点和触摸焦点能力，但不在每次触摸时强制调用 `requestFocusFromTouch()`，避免焦点操作重置网页滚动。
+- `UrlBarView.clearUrl()` 与启动页状态同步使用，主页按钮点击后立即清空旧地址，ViewModel 后续状态刷新也不会恢复旧文本。
+- `BrowserWebViewTest`、`UrlBarViewTest` 和 `MainActivityTest` 覆盖普通触摸序列、地址栏清空和主页跳转；全量 JVM 单测为 82 tests，0 failures/errors。
+
+## 本次修复：主页布局与搜索框状态
+
+- `BrowserFragment` 根据 `UiState.showStartup` 控制地址栏显隐：启动页隐藏顶部地址栏，网页状态恢复地址栏；布局 XML 初始状态也设为隐藏，避免启动页首帧闪现。
+- 主页搜索提交时先清空 `StartupView` 的输入框，再发起 URL/搜索跳转；返回主页后不会残留上一次搜索词。
+- `MainActivityTest` 覆盖启动页地址栏隐藏、网页状态恢复地址栏和搜索框清空；全量 JVM 单测为 84 tests，0 failures/errors。
+
+## 本次修复：滚动重影与地址栏完全隐藏
+
+- `BrowserFragment` 不再在连续滚动回调中立即改变 `webViewContainer.topMargin`；方向请求会在 300ms 没有新的有效滚动且触摸生命周期结束后执行，并在导航、全屏、WebView 重建和视图销毁时取消 pending runnable。
+- `BrowserWebView` 上报普通 WebView 触摸的按下/抬起状态，供地址栏布局防抖判断是否仍在手势中。
+- `BrowserLayoutMetrics.toolbarHideTranslation()` 使用地址栏完整高度作为隐藏位移，保证地址栏整体离开状态栏区域。
+- `MainActivityTest` 覆盖连续滚动期间 viewport 保持稳定、触摸生命周期结束后才切换到状态栏安全区；`BrowserWebViewTest` 覆盖触摸状态回调；`BrowserLayoutMetricsTest` 覆盖完整隐藏位移和零高度边界。
 
 ## 最近修复的触摸问题
 
@@ -67,6 +118,7 @@
 | 页面加载/错误/SSL/renderer | `app/src/main/java/com/yohuohuohuo/browser/web/BrowserWebViewClient.kt` |
 | 全屏和进度 | `app/src/main/java/com/yohuohuohuo/browser/web/BrowserWebChromeClient.kt` |
 | 视频状态和 bounds bridge | `app/src/main/java/com/yohuohuohuo/browser/gesture/VideoJsBridge.kt` + `app/src/main/assets/video_bridge.js` |
+| 内容安全区和视频方向判断 | `BrowserLayoutMetrics.kt` + `VideoOrientation.kt` |
 | 手势识别和触摸过滤 | `VideoGestureDetector.kt` + `VideoGestureOverlay.kt` + `BrowserWebView.kt` |
 | URL/搜索/UA | `util/UrlUtils.kt`、`util/SearchEngine.kt`、`ua/UaManager.kt` |
 

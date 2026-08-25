@@ -10,6 +10,8 @@ class WebViewManager {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun configure(webView: WebView) {
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
