@@ -1,9 +1,11 @@
 package com.yohuohuohuo.browser
 
 import android.content.pm.ActivityInfo
+import android.content.Context
 import android.os.Looper
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.EditText
 import android.widget.ImageButton
@@ -14,6 +16,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.yohuohuohuo.browser.ui.BrowserWebView
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -69,6 +72,39 @@ class MainActivityTest {
         searchInput.onEditorAction(EditorInfo.IME_ACTION_SEARCH)
 
         assertEquals("", searchInput.text.toString())
+    }
+
+    @Test
+    fun `startup search submission hides the keyboard`() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val searchInput = activity.findViewById<EditText>(R.id.searchInput)
+        val inputMethod = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        searchInput.requestFocus()
+        inputMethod.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+        assertTrue(shadowOf(inputMethod).isSoftInputVisible)
+        searchInput.setText("example.com")
+
+        searchInput.onEditorAction(EditorInfo.IME_ACTION_SEARCH)
+
+        assertFalse(shadowOf(inputMethod).isSoftInputVisible)
+    }
+
+    @Test
+    fun `address bar submission hides the keyboard`() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val webView = activity.findViewById<BrowserWebView>(R.id.webView)
+        webView.webViewClient.onPageStarted(webView, "https://old.example", null)
+        shadowOf(Looper.getMainLooper()).idle()
+        val urlInput = activity.findViewById<EditText>(R.id.urlInput)
+        val inputMethod = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        urlInput.requestFocus()
+        inputMethod.showSoftInput(urlInput, InputMethodManager.SHOW_IMPLICIT)
+        assertTrue(shadowOf(inputMethod).isSoftInputVisible)
+        urlInput.setText("https://new.example")
+
+        urlInput.onEditorAction(EditorInfo.IME_ACTION_GO)
+
+        assertFalse(shadowOf(inputMethod).isSoftInputVisible)
     }
 
     @Test

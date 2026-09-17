@@ -7,7 +7,24 @@
     var observer = null;
     var presenceCheckTimer = null;
     var boundVideos = typeof WeakSet === 'function' ? new WeakSet() : null;
+    var playedVideos = typeof WeakSet === 'function' ? new WeakSet() : [];
     var lastBounds = null;
+
+    function markVideoPlayed(video) {
+        if (typeof playedVideos.add === 'function') playedVideos.add(video);
+        else if (playedVideos.indexOf(video) < 0) playedVideos.push(video);
+    }
+
+    function wasVideoPlayed(video) {
+        return typeof playedVideos.has === 'function' ?
+            playedVideos.has(video) : playedVideos.indexOf(video) >= 0;
+    }
+
+    function canHandleVideo(video) {
+        return (!video.paused && video.readyState >= 2) ||
+            wasVideoPlayed(video) ||
+            (video.readyState >= 2 && video.currentTime > 0);
+    }
 
     /** 判断元素是否在视口内可见 */
     function isInViewport(el) {
@@ -21,12 +38,17 @@
 
     function findActiveVideo() {
         var videos = document.querySelectorAll('video');
+        if (activeVideo && Array.prototype.indexOf.call(videos, activeVideo) >= 0 &&
+            isInViewport(activeVideo) && canHandleVideo(activeVideo)) {
+            return activeVideo;
+        }
         var largestVisible = null;
         var largestVisibleArea = 0;
         var largestPlaying = null;
         var largestPlayingArea = 0;
         videos.forEach(function(v) {
             if (!isInViewport(v)) return;
+            if (!canHandleVideo(v)) return;
             var rect = v.getBoundingClientRect();
             var area = rect.width * rect.height;
             if (area > largestVisibleArea) {
@@ -38,8 +60,8 @@
                 largestPlaying = v;
             }
         });
-        // 手势应优先作用于正在播放的视频；没有正在播放的视频时，
-        // 再回退到视口内面积最大的 video（用于 play/toggle 等操作）。
+        // 保持已选视频的身份，避免暂停后切换到页面里的另一段视频。
+        // 未启动的视频继续由网页处理首次点击；已播放过的视频可在暂停后恢复。
         return largestPlaying || largestVisible;
     }
 
@@ -88,14 +110,14 @@
 
     function checkActive() {
         var v = findActiveVideo();
-        if (v && !v.paused && v.readyState >= 2) {
+        if (v) {
             if (activeVideo !== v) {
                 activeVideo = v;
                 lastBounds = null;
                 if (callbacks.onActive) callbacks.onActive();
             }
             notifyVideoBounds(getVideoBounds(v));
-        } else if (activeVideo && (v !== activeVideo || (v && v.paused))) {
+        } else if (activeVideo) {
             activeVideo = null;
             lastBounds = null;
             if (callbacks.onInactive) callbacks.onInactive();
@@ -142,7 +164,11 @@
     function bindVideoEvents(video) {
         if (boundVideos && boundVideos.has(video)) return;
         if (boundVideos) boundVideos.add(video);
-        video.addEventListener('play', schedulePresenceCheck);
+        if (!video.paused && video.readyState >= 2) markVideoPlayed(video);
+        video.addEventListener('play', function() {
+            markVideoPlayed(video);
+            schedulePresenceCheck();
+        });
         video.addEventListener('pause', schedulePresenceCheck);
         video.addEventListener('loadedmetadata', schedulePresenceCheck);
         video.addEventListener('emptied', schedulePresenceCheck);
@@ -213,6 +239,11 @@
             callbacks.onActive = onActive;
             callbacks.onInactive = onInactive;
             callbacks.onBounds = onBounds;
+            if (activeVideo) {
+                if (callbacks.onActive) callbacks.onActive();
+                lastBounds = null;
+                notifyVideoBounds(getVideoBounds(activeVideo));
+            }
             schedulePresenceCheck();
         }
     };

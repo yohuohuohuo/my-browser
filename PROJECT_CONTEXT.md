@@ -42,6 +42,7 @@ MainActivity
 
 1. `MainActivity` 创建 `BrowserFragment`，Fragment 显示启动页。
 2. 输入 URL 或搜索词后，`BrowserFragment.loadUrl()` 委托 `WebViewManager` 加载。
+   两个输入入口共用 `handleInput()`，提交非空内容时先清除焦点并隐藏 IME，再发起加载。
 3. `BrowserWebViewClient.onPageStarted()` 推进 `VideoJsBridge.pageGeneration`、清理视频状态并更新 ViewModel。
 4. `onPageFinished()` 更新 URL/title/loading 状态，再注入 `video_bridge.js` 并注册带 generation 的 JS 回调。
 5. 页面错误只对主 frame 更新 `BrowserError`；SSL 错误直接拒绝并报告。
@@ -52,7 +53,7 @@ MainActivity
 
 ```text
 DOM video events / MutationObserver / scroll / resize / 1s polling
-  -> findActiveVideo(): 视口内最大播放视频（无播放时仅作为控制目标）
+  -> findActiveVideo(): 保持已选且可见的视频；首次选择优先播放视频，无播放时仅选曾播放过的可见暂停视频
   -> getBoundingClientRect()
   -> AndroidBridge.onVideoBounds(generation, left, top, width, height)
   -> RectF * WebView.scale
@@ -65,13 +66,16 @@ DOM video events / MutationObserver / scroll / resize / 1s polling
 - 没有 bounds 时，不启用视频 touch handler。
 - `ACTION_DOWN` 在 bounds 外返回 `false`，WebView 获得完整普通事件流。
 - `ACTION_DOWN` 在 bounds 内后，后续 MOVE/UP/CANCEL 即使移出 bounds 仍由 detector 处理。
-- 普通单击先等待 double-tap 窗口，确认后用 `dispatchNativeTap()` 回放给 WebView。
+- 视频内普通单击先等待 double-tap 窗口，确认后显示浏览器统一控制栏，不回放给网页播放器；双击只通过 JS bridge 切换播放/暂停。
+- 水平滑动按 1px = 0.5s 增量 seek；单次手势的正向净快进量封顶 180s，反向滑动可扣回，手势结束后重置。
+- 尚未启动的视频不激活手势层，首次点击交给网页播放器初始化；已播放过的视频暂停后仍保持活动态，以便下一次双击恢复播放。
+- 控制栏在普通模式贴合视频 bounds，在全屏模式位于屏幕底部；3 秒无操作后隐藏，导航、视频失活或视图销毁时清理。
 - 全屏 custom view 将 overlay 移至 decor，进入 fullscreen touch mode，整个全屏区域接收手势。
 
 ## 重要实现边界
 
 - `VideoJsBridge` 的 active/inactive/bounds 回调必须验证 page generation 和 attach generation。
-- `VideoGestureOverlay` 的 feedback runnable、detector pending tap、bounds 和 touch ownership 都要在 reset/detach 时清理。
+- `VideoGestureOverlay` 的 feedback/control runnable、detector pending tap、bounds 和 touch ownership 都要在 reset/detach 时清理。
 - `BrowserWebView` 不应重新变成一个全屏拦截层；网页普通点击必须经过 `dispatchToWebView()`。
 - `WebViewManager` 的 JavaScript、DOM storage、media playback 和 mixed content 设置是浏览器兼容性与安全的平衡点。
 - `android:usesCleartextTraffic="true"` 目前仍在 Manifest 中，但 WebView 设置为 `MIXED_CONTENT_NEVER_ALLOW`；这需要设备和产品策略共同确认。

@@ -4,16 +4,20 @@ import android.content.Context
 import android.graphics.RectF
 import android.media.AudioManager
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Button
+import android.widget.SeekBar
 import android.widget.TextView
 import com.yohuohuohuo.browser.R
 import com.yohuohuohuo.browser.gesture.VideoGestureDetector
 import com.yohuohuohuo.browser.gesture.VideoJsBridge
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class VideoGestureOverlay @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -22,6 +26,7 @@ class VideoGestureOverlay @JvmOverloads constructor(
     private var videoBridge: VideoJsBridge? = null
     private var gestureDetector: VideoGestureDetector? = null
     private var seekAccumulator = 0f
+    private var requestedSeekSeconds = 0f
     private var hasFetchedTime = false
     private var cachedCurrentTime = 0f
     private var cachedDuration = 0f
@@ -34,8 +39,16 @@ class VideoGestureOverlay @JvmOverloads constructor(
     private var feedbackRequestGeneration = 0L
     private var fullscreenTouchMode = false
     private var feedbackHideRunnable: Runnable? = null
-
-    var onSingleTapConfirmed: ((MotionEvent, MotionEvent) -> Unit)? = null
+    private var controlsView: View? = null
+    private var controlsTime: TextView? = null
+    private var controlsSeek: SeekBar? = null
+    private var controlsHideRunnable: Runnable? = null
+    private var controlsRefreshRunnable: Runnable? = null
+    private var controlsGeneration = 0L
+    private var controlsCurrentTime = 0f
+    private var controlsDuration = 0f
+    private var controlsSeeking = false
+    private var inlineContentTopInset = 0
 
     private val audioManager: AudioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -51,6 +64,9 @@ class VideoGestureOverlay @JvmOverloads constructor(
 
     fun attach(bridge: VideoJsBridge) {
         gestureDetector?.dispose()
+        seekAccumulator = 0f
+        requestedSeekSeconds = 0f
+        hideControls()
         this.videoBridge = bridge
         activeVideoBounds = null
         touchInVideo = false
@@ -70,14 +86,16 @@ class VideoGestureOverlay @JvmOverloads constructor(
             }
 
             override fun onSingleTapConfirmed(down: MotionEvent, up: MotionEvent) {
-                onSingleTapConfirmed?.invoke(down, up)
+                showControls()
             }
 
             override fun onHorizontalScroll(deltaX: Float) {
-                // ~1px = 0.5s
-                val delta = deltaX * 0.5f
-                seekAccumulator += delta
-                videoBridge?.seekBy(delta)
+                // 保持 1px = 0.5s；一次手势的正向净快进最多 180s。
+                requestedSeekSeconds += deltaX * 0.5f
+                val boundedSeek = requestedSeekSeconds.coerceAtMost(180f)
+                val delta = boundedSeek - seekAccumulator
+                seekAccumulator = boundedSeek
+                if (delta != 0f) videoBridge?.seekBy(delta)
                 updateSeekFeedback()
             }
 
@@ -91,6 +109,7 @@ class VideoGestureOverlay @JvmOverloads constructor(
 
             override fun onScrollEnd() {
                 seekAccumulator = 0f
+                requestedSeekSeconds = 0f
                 hasFetchedTime = false
                 cachedCurrentTime = 0f
                 cachedDuration = 0f
@@ -111,11 +130,23 @@ class VideoGestureOverlay @JvmOverloads constructor(
                 it.bottom * scale
             )
         }
+        if (activeVideoBounds == null && !fullscreenTouchMode) resetGesture()
+        else positionControls()
+    }
+
+    fun setInlineContentTopInset(topInset: Int) {
+        inlineContentTopInset = topInset.coerceAtLeast(0)
+        positionControls()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        positionControls()
     }
 
     /**
      * 由 WebView 的 touch 路由调用。活动视频期间先暂存点击，等待双击窗口结束；
-     * 滑动、长按和双击由 detector 直接消费，普通单击确认后再回放给目标 View。
+     * 滑动、长按和双击由 detector 直接消费，普通单击确认后显示浏览器控制栏。
      */
     fun handleWebViewTouch(event: MotionEvent): Boolean {
         return handleGestureTouch(event)
@@ -176,11 +207,18 @@ class VideoGestureOverlay @JvmOverloads constructor(
         gestureDetector?.dispose()
         gestureDetector = null
         videoBridge = null
+        seekAccumulator = 0f
+        requestedSeekSeconds = 0f
         gestureConsumed = false
         activeVideoBounds = null
         touchInVideo = false
         volumeDeltaAccumulator = 0f
         hideFeedback()
+        hideControls()
+        controlsView?.let { removeView(it) }
+        controlsView = null
+        controlsTime = null
+        controlsSeek = null
         feedbackView?.let { removeView(it) }
         feedbackView = null
         feedbackText = null
@@ -192,16 +230,140 @@ class VideoGestureOverlay @JvmOverloads constructor(
         touchInVideo = false
         volumeDeltaAccumulator = 0f
         hideFeedback()
+        hideControls()
+    }
+
+    private fun showControls() {
+        if (controlsView == null) {
+            controlsView = LayoutInflater.from(context)
+                .inflate(R.layout.view_video_controls, this, false).also { controls ->
+                    controlsTime = controls.findViewById(R.id.videoTime)
+                    controlsSeek = controls.findViewById<SeekBar>(R.id.videoSeek).apply {
+                        max = 1000
+                        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                            override fun onStartTrackingTouch(seekBar: SeekBar) {
+                                controlsSeeking = true
+                                controlsHideRunnable?.let { removeCallbacks(it) }
+                            }
+
+                            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                                if (fromUser && controlsDuration > 0f) {
+                                    controlsTime?.text = context.getString(
+                                        R.string.video_time_format,
+                                        formatTime(controlsDuration * progress / 1000f),
+                                        formatTime(controlsDuration)
+                                    )
+                                }
+                            }
+
+                            override fun onStopTrackingTouch(seekBar: SeekBar) {
+                                val target = controlsDuration * seekBar.progress / 1000f
+                                if (controlsDuration > 0f) videoBridge?.seekBy(target - controlsCurrentTime)
+                                controlsSeeking = false
+                                refreshControls()
+                                scheduleControlsHide()
+                            }
+                        })
+                    }
+                    controls.findViewById<Button>(R.id.videoTogglePlayback).setOnClickListener {
+                        videoBridge?.togglePlay()
+                        refreshControls()
+                        scheduleControlsHide()
+                    }
+                    addView(controls)
+                }
+        }
+        positionControls()
+        controlsView?.visibility = View.VISIBLE
+        refreshControls()
+        scheduleControlsHide()
+    }
+
+    private fun refreshControls() {
+        if (controlsView?.visibility != View.VISIBLE || controlsSeeking) return
+        val bridge = videoBridge ?: return
+        val generation = controlsGeneration
+        bridge.getCurrentTime { current ->
+            if (generation != controlsGeneration || controlsView?.visibility != View.VISIBLE) return@getCurrentTime
+            bridge.getDuration { duration ->
+                if (generation != controlsGeneration || controlsView?.visibility != View.VISIBLE) return@getDuration
+                controlsCurrentTime = current.takeIf { it.isFinite() && it >= 0f } ?: 0f
+                controlsDuration = duration.takeIf { it.isFinite() && it > 0f } ?: 0f
+                if (!controlsSeeking) {
+                    controlsTime?.text = context.getString(
+                        R.string.video_time_format,
+                        formatTime(controlsCurrentTime),
+                        formatTime(controlsDuration)
+                    )
+                    controlsSeek?.progress = if (controlsDuration > 0f) {
+                        (controlsCurrentTime / controlsDuration * 1000f).toInt().coerceIn(0, 1000)
+                    } else 0
+                    controlsSeek?.isEnabled = controlsDuration > 0f
+                }
+            }
+        }
+        controlsRefreshRunnable?.let { removeCallbacks(it) }
+        controlsRefreshRunnable = Runnable {
+            controlsRefreshRunnable = null
+            refreshControls()
+        }
+        postDelayed(controlsRefreshRunnable!!, 1_000L)
+    }
+
+    private fun scheduleControlsHide() {
+        controlsHideRunnable?.let { removeCallbacks(it) }
+        controlsHideRunnable = Runnable {
+            if (!controlsSeeking) hideControls()
+        }
+        postDelayed(controlsHideRunnable!!, 3_000L)
+    }
+
+    private fun hideControls() {
+        controlsGeneration++
+        controlsHideRunnable?.let { removeCallbacks(it) }
+        controlsHideRunnable = null
+        controlsRefreshRunnable?.let { removeCallbacks(it) }
+        controlsRefreshRunnable = null
+        controlsSeeking = false
+        controlsView?.visibility = View.GONE
+    }
+
+    private fun positionControls() {
+        val controls = controlsView ?: return
+        val params = controls.layoutParams as? LayoutParams ?: return
+        val barHeight = (56f * resources.displayMetrics.density).roundToInt()
+        params.gravity = Gravity.BOTTOM or Gravity.START
+        if (fullscreenTouchMode) {
+            params.width = LayoutParams.MATCH_PARENT
+            params.height = barHeight
+            params.leftMargin = 0
+            params.bottomMargin = 0
+        } else {
+            val bounds = activeVideoBounds ?: return
+            if (width <= 0 || height <= 0) return
+            val left = bounds.left.coerceIn(0f, width.toFloat()).roundToInt()
+            val right = bounds.right.coerceIn(0f, width.toFloat()).roundToInt()
+            val top = (bounds.top + inlineContentTopInset).coerceIn(0f, height.toFloat()).roundToInt()
+            val bottom = (bounds.bottom + inlineContentTopInset).coerceIn(0f, height.toFloat()).roundToInt()
+            if (right <= left || bottom <= top) return
+            params.width = right - left
+            params.height = minOf(barHeight, bottom - top)
+            params.leftMargin = left
+            params.bottomMargin = height - bottom
+        }
+        controls.layoutParams = params
     }
 
     fun enterFullscreenTouchMode() {
         fullscreenTouchMode = true
         resetGesture()
+        positionControls()
     }
 
     fun exitFullscreenTouchMode() {
         fullscreenTouchMode = false
         resetGesture()
+        positionControls()
     }
 
     private fun showFeedback(text: String) {

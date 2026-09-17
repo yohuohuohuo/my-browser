@@ -17,6 +17,8 @@
 ## D3：视频手势通过 JS bridge 控制当前页面 video
 
 - Native detector 负责手势识别，JS 负责查找 video、播放、暂停、seek、rate 和时间读取。
+- 浏览器统一控制栏负责已启动视频区域内的单击反馈与播放按钮/进度操作；不再回放这类单击给网页播放器，避免网页自身点击逻辑改变播放状态。双击由 bridge 切换播放/暂停；已播放过且可见的视频暂停后仍保留活动态，并锁定同一目标。尚未启动的视频先保留网页自己的启动点击入口。
+- 水平滑动继续按 1px = 0.5s 换算；单次手势的正向净快进量上限为 180s，反向滑动可扣回，松手后重置额度；快退不在此次限制范围内。
 - JS 回调带 page generation；Native 同时校验 page/attach generation，防止旧页面异步回调污染新页面。
 - `@JavascriptInterface` 方法由 `app/proguard-rules.pro` 保留，不能仅依赖 R8 自动推断。
 

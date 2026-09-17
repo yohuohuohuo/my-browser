@@ -2,11 +2,11 @@
 
 ## 快照
 
-- 更新时间：2026-08-25
+- 更新时间：2026-09-17
 - 仓库：`/Users/qiuyupan/git_workspace/my-browser`
 - 分支：`feature/yobrowser-impl`
-- 最后提交：`c9b7923 feat: Update UI components and improve accessibility`
-- 工作树：非 clean。当前工作树包含上一轮项目实现、修复、测试、接管文档和本次 UI/全屏修复，尚未提交。
+- 最后提交：`5c602b8`（以当前 `git log` 为准）
+- 工作树：视频手势、键盘提交修复及文档有未提交修改；更早的历史章节仅作背景，以当前 `git status` 为准。
 - 接管结论：当前实现可构建和通过 JVM/Lint，但还不能称为已发布或已完成真机验收的 Android 浏览器。
 
 ## 当前已完成能力
@@ -25,6 +25,25 @@
 - 视频长按 3x、水平 seek、双击播放切换、左右垂直亮度/音量调节、反馈层和 pending gesture 清理。
 - Release R8/resource shrinking、JavaScript bridge ProGuard 保留规则。
 - `UrlUtils`、`BrowserViewModel`、`BrowserWebView`、视频 detector/bridge/overlay、UA、WebChrome/WebViewClient 的 JVM 单测。
+
+## 2026-09-17 视频单击与双击修复
+
+- 视频区域内单击确认后不再向网页或 fullscreen custom view 回放触摸，只显示浏览器统一控制栏（播放/暂停按钮、进度条、时间）；3 秒无操作自动隐藏。
+- 双击仍通过 `VideoJsBridge.togglePlay()` 切换播放状态；JS 保持已选且可见的视频身份，支持暂停后再次双击恢复，而不误切到其他视频。
+- 未启动的视频继续由网页处理首次点击；普通模式控制栏限制在视频 bounds 内，位置叠加 WebView 内容 top inset，视频外的网页触摸不被控制栏截获。
+- bridge 注册回调时补发当前已识别视频的 active/bounds，避免脚本先识别视频、后注册回调时漏报。
+- 视频失活、导航、全屏切换和 overlay detach/reset 时清理控制栏及计时任务。网页视频区域外触摸路径未改。
+- 回归测试：`VideoGestureOverlayTest` 和 `app/src/test/js/video_bridge.test.js`，覆盖多视频、尚未启动视频与控制栏触摸范围。完整验证见 `VERIFICATION.md`；设备实测仍待办。
+
+## 2026-09-17 横滑快进上限
+
+- 保留水平滑动 1px = 0.5s 的比例；单次按下到松开，正向净快进最多 180s。达到上限后继续右滑不再推进，反向滑动按手指净位移扣回；下一次滑动重新计数。快退保持原规则。
+- 修改 `VideoGestureOverlay.kt` 并在 `VideoGestureOverlayTest.kt` 增加上限、反向扣回与新手势重置回归；设备上的视频进度行为仍待实测。
+
+## 2026-09-17 提交搜索后收起输入法
+
+- `BrowserFragment.handleInput()` 统一处理首页搜索框与地址栏的非空提交：清除当前输入焦点、显式请求隐藏 IME，再按原有 URL/搜索规则加载网页。
+- `MainActivityTest` 增加两条 Robolectric 回归，分别验证首页搜索与地址栏提交后输入法隐藏；实际输入法与 WebView 加载时序仍需设备验证。
 
 ## 本次修复：内容安全区与视频方向
 
@@ -97,15 +116,7 @@
 
 ## 当前工作树边界
 
-`git status --short` 显示的未提交内容覆盖：
-
-- `app/build.gradle.kts`、Manifest、Gradle properties/version catalog/wrapper 配置。
-- `BrowserFragment`、`BrowserViewModel`、`MainActivity`、视频 gesture、URL、WebView/Chrome client 和 WebView manager。
-- 浏览器布局、启动页、地址栏、主题、字符串、launcher 资源。
-- 新增 `BrowserWebView.kt`、`app/proguard-rules.pro` 和多组 JVM 测试。
-- 旧 `mipmap-anydpi-v26` launcher XML 被删除，新 launcher 资源位于 `mipmap-anydpi`。
-
-不要只提交本次触摸修复的几个文件而忽略同一工作树中的依赖改动；提交前应先按功能拆分并人工审阅完整 diff。也不要为了生成文档而 reset、stash 或清理这些文件。
+本次开始前工作树为 clean，基线为 `5c602b8`。当前未提交内容仅是视频单击/双击修复、对应测试/资源及接管文档。提交前仍应审阅完整 diff 并取得用户确认；不自动 commit/push。
 
 ## 当前架构入口
 

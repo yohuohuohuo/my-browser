@@ -55,12 +55,6 @@ open class BrowserWebView @JvmOverloads constructor(
 
     protected open fun dispatchToWebView(event: MotionEvent): Boolean = super.onTouchEvent(event)
 
-    fun dispatchNativeTap(down: MotionEvent, up: MotionEvent) {
-        dispatchToWebView(down)
-        dispatchToWebView(up)
-        updateTouchState(false)
-    }
-
     override fun performClick(): Boolean {
         super.performClick()
         return true

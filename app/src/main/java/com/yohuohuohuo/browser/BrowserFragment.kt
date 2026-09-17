@@ -1,11 +1,13 @@
 package com.yohuohuohuo.browser
 
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -241,6 +243,7 @@ class BrowserFragment : Fragment() {
             if (isAdded && _binding != null) {
                 viewModel.setVideoActive(active)
                 if (!active) {
+                    binding.videoGestureOverlay.resetGesture()
                     binding.videoGestureOverlay.setActiveVideoBounds(null)
                 }
                 binding.videoGestureOverlay.visibility =
@@ -255,17 +258,7 @@ class BrowserFragment : Fragment() {
             }
         }
         binding.videoGestureOverlay.attach(videoBridge)
-        binding.videoGestureOverlay.onSingleTapConfirmed = { down, up ->
-            val fullscreenView = customView
-            if (fullscreenView != null) {
-                fullscreenView.dispatchTouchEvent(down)
-                fullscreenView.dispatchTouchEvent(up)
-            } else {
-                webView.dispatchNativeTap(down, up)
-            }
-        }
-
-        // 活动视频的点击先由 overlay 延迟确认双击；确认单击后再回放给 WebView。
+        // 活动视频内单击由浏览器显示控制栏，不回放给网页播放器。
         webView.gestureHandler = { event ->
             if (binding.videoGestureOverlay.isGestureEnabled()) {
                 binding.videoGestureOverlay.handleWebViewTouch(event)
@@ -347,6 +340,11 @@ class BrowserFragment : Fragment() {
     }
 
     private fun handleInput(text: String) {
+        val focusedView = activity?.currentFocus
+        val windowToken = focusedView?.windowToken ?: binding.root.windowToken
+        focusedView?.clearFocus()
+        val inputMethod = requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        inputMethod.hideSoftInputFromWindow(windowToken, 0)
         val url = if (UrlUtils.isUrl(text)) {
             UrlUtils.normalizeUrl(text)
         } else {
@@ -425,6 +423,7 @@ class BrowserFragment : Fragment() {
             layoutParams.topMargin = topInset
             container.layoutParams = layoutParams
         }
+        binding.videoGestureOverlay.setInlineContentTopInset(topInset)
         val progressLayoutParams = binding.loadingProgress.layoutParams as? FrameLayout.LayoutParams
             ?: return
         if (progressLayoutParams.topMargin != topInset) {
