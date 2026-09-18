@@ -16,23 +16,20 @@ open class BrowserWebView @JvmOverloads constructor(
     var gestureHandler: ((MotionEvent) -> Boolean)? = null
     var onTouchStateChanged: ((Boolean) -> Unit)? = null
     private var webViewTouchActive = false
+    private var lastForwardedTouch: MotionEvent? = null
 
     // 普通事件始终交给 WebView 处理；只有自定义 detector 已接管时才提前消费。
     // 即使 WebView 对单个事件返回 false，也要保持当前触摸序列，避免滑动被截断。
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (gestureHandler?.invoke(event) == true) {
-            if (webViewTouchActive) {
-                val cancel = MotionEvent.obtain(event)
-                cancel.action = MotionEvent.ACTION_CANCEL
-                dispatchToWebView(cancel)
-                cancel.recycle()
-                updateTouchState(false)
-            }
+            cancelActiveTouch()
             return true
         }
 
         val wasTouchActive = webViewTouchActive
+        lastForwardedTouch?.recycle()
+        lastForwardedTouch = MotionEvent.obtain(event)
         val handled = dispatchToWebView(event)
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -41,10 +38,26 @@ open class BrowserWebView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 updateTouchState(false)
+                lastForwardedTouch?.recycle()
+                lastForwardedTouch = null
                 handled || wasTouchActive
             }
             else -> handled || wasTouchActive
         }
+    }
+
+    /** A timer-based long press can take ownership without a new MotionEvent. */
+    fun cancelActiveTouch() {
+        if (!webViewTouchActive) return
+        lastForwardedTouch?.let { previous ->
+            val cancel = MotionEvent.obtain(previous)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            dispatchToWebView(cancel)
+            cancel.recycle()
+        }
+        lastForwardedTouch?.recycle()
+        lastForwardedTouch = null
+        updateTouchState(false)
     }
 
     private fun updateTouchState(active: Boolean) {

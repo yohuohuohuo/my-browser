@@ -28,6 +28,10 @@ class VideoJsBridge(context: Context) {
         appContext.assets.open("video_bridge.js").bufferedReader().use { it.readText() }
     }
 
+    private val mediaPauseScript: String by lazy {
+        appContext.assets.open("media_pause.js").bufferedReader().use { it.readText() }
+    }
+
     var onVideoActiveChanged: ((Boolean) -> Unit)? = null
     var onVideoBoundsChanged: ((RectF?) -> Unit)? = null
 
@@ -88,6 +92,11 @@ class VideoJsBridge(context: Context) {
 
     fun pause() {
         webView?.evaluateJavascript("window.__videoBridge.pause();", null)
+    }
+
+    /** 与当前活动视频无关，暂停页面内所有可访问的 audio/video。 */
+    fun pauseAllMedia() {
+        webView?.evaluateJavascript(mediaPauseScript, null)
     }
 
     fun togglePlay() {

@@ -22,6 +22,7 @@ import com.yohuohuohuo.browser.gesture.VideoOrientation
 import com.yohuohuohuo.browser.ua.UaManager
 import com.yohuohuohuo.browser.ui.BrowserWebView
 import com.yohuohuohuo.browser.ui.BrowserLayoutMetrics
+import com.yohuohuohuo.browser.ui.FullscreenVideoTouchHost
 import com.yohuohuohuo.browser.util.SearchEngine
 import com.yohuohuohuo.browser.util.UrlUtils
 import com.yohuohuohuo.browser.web.BrowserWebChromeClient
@@ -39,6 +40,7 @@ class BrowserFragment : Fragment() {
     private val videoBridge by lazy { VideoJsBridge(requireContext()) }
     private var activeWebView: BrowserWebView? = null
     private var customView: View? = null
+    private var fullscreenTouchHost: FullscreenVideoTouchHost? = null
     private var webChromeClient: BrowserWebChromeClient? = null
     private var toolbarHidden = false
     private var toolbarHiddenBeforeFullscreen: Boolean? = null
@@ -48,6 +50,7 @@ class BrowserFragment : Fragment() {
     private val toolbarVisibilityHandler = Handler(Looper.getMainLooper())
     private var toolbarVisibilityRunnable: Runnable? = null
     private var webViewTouchActive = false
+    private var webViewPaused = false
 
     private val currentWebView: BrowserWebView
         get() = activeWebView ?: binding.webView
@@ -57,6 +60,7 @@ class BrowserFragment : Fragment() {
     ): View {
         _binding = FragmentBrowserBinding.inflate(inflater, container, false)
         activeWebView = binding.webView
+        webViewPaused = false
         return binding.root
     }
 
@@ -126,46 +130,64 @@ class BrowserFragment : Fragment() {
         }
         webView.webViewClient = BrowserWebViewClient(
             onPageStartedCallback = { url ->
-                cancelPendingToolbarVisibility()
-                webViewTouchActive = false
-                videoBridge.beginNavigation()
-                resetVideoGestureState()
-                if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
-                    viewModel.showStartup()
-                } else {
-                    viewModel.onPageStarted(url)
+                if (webView === activeWebView) {
+                    if (!viewModel.uiState.value.showStartup) videoBridge.pauseAllMedia()
+                    cancelPendingToolbarVisibility()
+                    webViewTouchActive = false
+                    videoBridge.beginNavigation()
+                    resetVideoGestureState()
+                    if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
+                        viewModel.showStartup()
+                    } else {
+                        viewModel.onPageStarted(url)
+                        resumeWebViewIfVisible()
+                    }
                 }
             },
             onPageFinishedCallback = { finishedWebView, url ->
-                if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
-                    viewModel.showStartup()
-                } else {
-                    viewModel.onPageFinished(url, finishedWebView.title ?: "")
-                    videoBridge.injectScript()
+                if (finishedWebView === activeWebView) {
+                    val state = viewModel.uiState.value
+                    if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
+                        if (state.currentUrl.isBlank()) viewModel.showStartup()
+                    } else if (!state.showStartup && state.error == null && url == state.currentUrl) {
+                        viewModel.onPageFinished(url, finishedWebView.title ?: "")
+                        videoBridge.injectScript()
+                    }
                 }
             },
             onReceivedErrorCallback = { message, url ->
-                viewModel.onReceivedError(message, url)
+                if (webView === activeWebView && url == viewModel.uiState.value.currentUrl) {
+                    viewModel.onReceivedError(message, url)
+                    pauseHiddenPage()
+                }
             },
             onSslErrorCallback = { url ->
-                viewModel.onReceivedError("SSL certificate error", url)
+                if (webView === activeWebView && url == viewModel.uiState.value.currentUrl) {
+                    viewModel.onReceivedError("SSL certificate error", url)
+                    pauseHiddenPage()
+                }
             },
             onRenderProcessGoneCallback = { didCrash ->
-                recreateWebViewAfterRendererGone(didCrash)
+                if (webView === activeWebView) recreateWebViewAfterRendererGone(didCrash)
             }
         )
 
         val chromeClient = BrowserWebChromeClient(
-            onProgressChangedCallback = { progress -> viewModel.onProgressChanged(progress) },
-            onShowCustomViewCallback = { view ->
+            onProgressChangedCallback = { progress ->
+                if (webView === activeWebView) viewModel.onProgressChanged(progress)
+            },
+            onShowCustomViewCallback = show@{ view ->
+                if (webView !== activeWebView) return@show
                 cancelPendingToolbarVisibility()
                 webViewTouchActive = false
                 customView = view
                 toolbarHiddenBeforeFullscreen = toolbarHidden
                 val decor = activity?.window?.decorView as? FrameLayout
                 (view.parent as? ViewGroup)?.removeView(view)
+                val host = FullscreenVideoTouchHost(requireContext(), view)
+                fullscreenTouchHost = host
                 decor?.addView(
-                    view,
+                    host,
                     FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
@@ -175,7 +197,7 @@ class BrowserFragment : Fragment() {
                 fullscreenOverlayParent = overlay.parent as? ViewGroup
                 fullscreenOverlayIndex = fullscreenOverlayParent?.indexOfChild(overlay) ?: -1
                 fullscreenOverlayParent?.removeView(overlay)
-                decor?.addView(
+                host.addView(
                     overlay,
                     FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
@@ -184,6 +206,7 @@ class BrowserFragment : Fragment() {
                 )
                 overlay.visibility = View.VISIBLE
                 overlay.enterFullscreenTouchMode()
+                host.gestureHandler = { event -> overlay.handleWebViewTouch(event) }
                 binding.urlBarView.animate().cancel()
                 binding.urlBarView.visibility = View.GONE
                 (activity as? MainActivity)?.setFullscreen(true)
@@ -194,10 +217,13 @@ class BrowserFragment : Fragment() {
                     }
                 }
             },
-            onHideCustomViewCallback = {
+            onHideCustomViewCallback = hide@{
+                if (webView !== activeWebView) return@hide
                 cancelPendingToolbarVisibility()
                 webViewTouchActive = false
                 val overlay = _binding?.videoGestureOverlay
+                fullscreenTouchHost?.gestureHandler = null
+                fullscreenTouchHost?.cancelActiveTouch()
                 overlay?.exitFullscreenTouchMode()
                 overlay?.visibility =
                     if (viewModel.uiState.value.videoActive) View.VISIBLE else View.GONE
@@ -217,9 +243,11 @@ class BrowserFragment : Fragment() {
                 }
                 fullscreenOverlayParent = null
                 fullscreenOverlayIndex = -1
-                customView?.let { view ->
-                    (activity?.window?.decorView as? FrameLayout)?.removeView(view)
+                fullscreenTouchHost?.let { host ->
+                    (activity?.window?.decorView as? FrameLayout)?.removeView(host)
+                    customView?.let(host::removeView)
                 }
+                fullscreenTouchHost = null
                 customView = null
                 _binding?.let {
                     it.urlBarView.visibility = View.VISIBLE
@@ -258,7 +286,10 @@ class BrowserFragment : Fragment() {
             }
         }
         binding.videoGestureOverlay.attach(videoBridge)
-        // 活动视频内单击由浏览器显示控制栏，不回放给网页播放器。
+        binding.videoGestureOverlay.onGestureTakeover = {
+            fullscreenTouchHost?.cancelActiveTouch() ?: webView.cancelActiveTouch()
+        }
+        // Keep the original page touch until a video gesture takes ownership.
         webView.gestureHandler = { event ->
             if (binding.videoGestureOverlay.isGestureEnabled()) {
                 binding.videoGestureOverlay.handleWebViewTouch(event)
@@ -286,12 +317,19 @@ class BrowserFragment : Fragment() {
             urlToRestore
         )
 
+        replaceWebView(oldWebView)
+        if (urlToRestore.isNotBlank() && !state.showStartup) {
+            loadUrl(urlToRestore)
+        }
+    }
+
+    private fun replaceWebView(oldWebView: BrowserWebView) {
         videoBridge.detach()
         binding.videoGestureOverlay.detach()
         oldWebView.onTouchStateChanged = null
         webViewTouchActive = false
-        webViewManager.destroy(oldWebView)
         binding.webViewContainer.removeView(oldWebView)
+        webViewManager.destroy(oldWebView)
 
         val replacement = BrowserWebView(requireContext())
         replacement.id = R.id.webView
@@ -303,10 +341,8 @@ class BrowserFragment : Fragment() {
             )
         )
         activeWebView = replacement
+        webViewPaused = false
         setupWebView()
-        if (urlToRestore.isNotBlank() && !state.showStartup) {
-            loadUrl(urlToRestore)
-        }
     }
 
     private fun observeState() {
@@ -423,7 +459,6 @@ class BrowserFragment : Fragment() {
             layoutParams.topMargin = topInset
             container.layoutParams = layoutParams
         }
-        binding.videoGestureOverlay.setInlineContentTopInset(topInset)
         val progressLayoutParams = binding.loadingProgress.layoutParams as? FrameLayout.LayoutParams
             ?: return
         if (progressLayoutParams.topMargin != topInset) {
@@ -433,12 +468,21 @@ class BrowserFragment : Fragment() {
     }
 
     fun loadUrl(url: String) {
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && webViewPaused) {
+            currentWebView.onResume()
+            webViewPaused = false
+        }
+        if (!viewModel.uiState.value.showStartup) videoBridge.pauseAllMedia()
         webViewManager.loadUrl(currentWebView, url)
     }
 
     fun canGoBack(): Boolean = currentWebView.canGoBack()
 
-    fun goBack(): Boolean = webViewManager.goBack(currentWebView)
+    fun goBack(): Boolean {
+        if (!currentWebView.canGoBack()) return false
+        videoBridge.pauseAllMedia()
+        return webViewManager.goBack(currentWebView)
+    }
 
     fun onBackPressed(): Boolean {
         // 全屏优先退出，不能让返回键直接离开页面/Activity。
@@ -447,7 +491,7 @@ class BrowserFragment : Fragment() {
             return true
         }
         if (currentWebView.canGoBack()) {
-            currentWebView.goBack()
+            goBack()
             return true
         }
         if (!viewModel.uiState.value.showStartup) {
@@ -459,16 +503,44 @@ class BrowserFragment : Fragment() {
 
     private fun showStartupPage() {
         cancelPendingToolbarVisibility()
+        webChromeClient?.hideCustomViewFromHost()
         binding.urlBarView.clearUrl()
-        // 启动页只是覆盖当前 WebView，旧页面的 JS 仍可能异步回调；
-        // 先推进 generation，避免它重新激活视频手势层。
         videoBridge.beginNavigation()
         resetVideoGestureState()
+        // Home 是离开页面，不保留旧页面、子 frame 或媒体播放上下文。
+        replaceWebView(currentWebView)
         viewModel.showStartup()
-        // 启动页覆盖 WebView 即可，不再 load about:blank，避免 onPageStarted
-        // 把刚写入的 showStartup 状态改回 false。
-        currentWebView.stopLoading()
         showToolbar()
+    }
+
+    private fun pauseHiddenPage() {
+        if (_binding == null || viewModel.uiState.value.showStartup) return
+        videoBridge.pauseAllMedia()
+        if (!webViewPaused) {
+            currentWebView.onPause()
+            webViewPaused = true
+        }
+    }
+
+    private fun resumeWebViewIfVisible(fromOnResume: Boolean = false) {
+        if (_binding == null || !webViewPaused) return
+        val state = viewModel.uiState.value
+        if ((fromOnResume || lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) &&
+            !state.showStartup && state.error == null
+        ) {
+            currentWebView.onResume()
+            webViewPaused = false
+        }
+    }
+
+    override fun onPause() {
+        pauseHiddenPage()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumeWebViewIfVisible(fromOnResume = true)
     }
 
     override fun onDestroyView() {

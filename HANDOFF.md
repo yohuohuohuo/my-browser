@@ -2,11 +2,11 @@
 
 ## 快照
 
-- 更新时间：2026-09-17
+- 更新时间：2026-09-18
 - 仓库：`/Users/qiuyupan/git_workspace/my-browser`
 - 分支：`feature/yobrowser-impl`
-- 最后提交：`5c602b8`（以当前 `git log` 为准）
-- 工作树：视频手势、键盘提交修复及文档有未提交修改；更早的历史章节仅作背景，以当前 `git status` 为准。
+- 最后提交：`3e38edf`（以当前 `git log` 为准）
+- 工作树：此前视频触摸路由修复及本次媒体生命周期修复均未提交；更早的历史章节仅作背景，以当前 `git status` 为准。
 - 接管结论：当前实现可构建和通过 JVM/Lint，但还不能称为已发布或已完成真机验收的 Android 浏览器。
 
 ## 当前已完成能力
@@ -21,19 +21,27 @@
 - WebView JavaScript/DOM storage、媒体用户手势限制、缓存、缩放和生命周期销毁。
 - 主 frame 加载错误、HTTP 错误、SSL 错误拒绝、错误页重试。
 - WebView renderer gone 后重建 WebView 并恢复当前 URL。
+- 返回主页销毁旧 WebView（包含页面、子 frame 和播放上下文），后台/错误页暂停页面媒体；恢复可见时不自动播放。
 - 全屏视频 custom view、系统栏隐藏/恢复、返回键优先退出全屏。
 - 视频长按 3x、水平 seek、双击播放切换、左右垂直亮度/音量调节、反馈层和 pending gesture 清理。
 - Release R8/resource shrinking、JavaScript bridge ProGuard 保留规则。
 - `UrlUtils`、`BrowserViewModel`、`BrowserWebView`、视频 detector/bridge/overlay、UA、WebChrome/WebViewClient 的 JVM 单测。
 
-## 2026-09-17 视频单击与双击修复
+## 2026-09-18 页面不可见时的媒体处理
 
-- 视频区域内单击确认后不再向网页或 fullscreen custom view 回放触摸，只显示浏览器统一控制栏（播放/暂停按钮、进度条、时间）；3 秒无操作自动隐藏。
-- 双击仍通过 `VideoJsBridge.togglePlay()` 切换播放状态；JS 保持已选且可见的视频身份，支持暂停后再次双击恢复，而不误切到其他视频。
-- 未启动的视频继续由网页处理首次点击；普通模式控制栏限制在视频 bounds 内，位置叠加 WebView 内容 top inset，视频外的网页触摸不被控制栏截获。
-- bridge 注册回调时补发当前已识别视频的 active/bounds，避免脚本先识别视频、后注册回调时漏报。
-- 视频失活、导航、全屏切换和 overlay detach/reset 时清理控制栏及计时任务。网页视频区域外触摸路径未改。
-- 回归测试：`VideoGestureOverlayTest` 和 `app/src/test/js/video_bridge.test.js`，覆盖多视频、尚未启动视频与控制栏触摸范围。完整验证见 `VERIFICATION.md`；设备实测仍待办。
+- Home 按钮和无历史记录时的返回键都卸载旧 WebView 并创建空白的新 WebView。原页面历史和状态不再保留，这是用户明确要求的 Home 语义。
+- 旧 WebView 的加载、错误、进度、renderer、全屏回调仅在它仍是当前 WebView 时生效；同一 WebView 上旧导航的完成回调不能覆盖新 URL，错误后的完成回调不能清掉错误页。
+- 后台、主 frame 错误页和应用发起的导航会执行独立的 `media_pause.js`，暂停主文档与可访问的同源 frame 中所有 audio/video；后台和错误页还调用 WebView `onPause()`，恢复处理时不调用媒体 `play()`。
+- 跨域 frame 不能由页面 JavaScript 直接遍历；后台/错误页依赖 WebView `onPause()` 的 best-effort 行为。Home 的销毁路径不受此限制。
+- 新增主页卸载、旧回调隔离、后台/错误页/重试的 Robolectric 回归和媒体暂停脚本 Node 测试。全量验证见 `VERIFICATION.md`；真机媒体行为仍待验收。
+
+## 2026-09-17 视频触摸回退与通用透传修复
+
+- 删除叠加在网页播放器上的简化浏览器控制栏。活动视频的首次单击不延迟、不回放，原始 `DOWN/UP` 立即交给 WebView 或全屏 custom view，由网页自己的播放器决定控制栏显隐。
+- 双击从第二次 `DOWN` 起由浏览器消费并调用 `togglePlay()`；拖动越过阈值时向原生接收方发送 `ACTION_CANCEL`，再接管 seek、亮度和音量；长按计时触发时立即取消原生触摸，再进入 3x 倍速。
+- 全屏 custom view 使用 `FullscreenVideoTouchHost` 路由原始触摸，反馈 overlay 只负责绘制；退出全屏后恢复 overlay 原位置。视频底部最多 56dp、且不超过视频高度 25% 的区域保留给网页控制栏触摸。
+- 长按和滑动提示改为 13sp 常规字重、低对比背景、紧凑内边距和 1 秒自动隐藏。1px = 0.5s 与单次快进上限 180s 不变。
+- 单测与构建见 `VERIFICATION.md`；真实站点控件显隐、触摸坐标及站点自制控件仍需设备复测。
 
 ## 2026-09-17 横滑快进上限
 
@@ -69,7 +77,7 @@
 
 ## 本次功能：主页按钮与网页加载进度条
 
-- `UrlBarView` 在地址栏左侧新增 Home 按钮，与 URL 输入框、UA 按钮保持同一行；点击后复用启动页返回流程，停止当前加载并清理旧页面的视频状态。
+- `UrlBarView` 在地址栏左侧新增 Home 按钮，与 URL 输入框、UA 按钮保持同一行；当前点击会卸载旧 WebView 并进入启动页（早期只停止加载的实现已被 2026-09-18 修复替代）。
 - `BrowserFragment` 使用现有 `BrowserWebChromeClient`/`BrowserViewModel` 的 `isLoading` 和 `loadingProgress` 状态控制横向进度条；地址栏可见时进度条位于地址栏底部，地址栏隐藏时位于状态栏安全区下方的网页顶部。
 - `UrlBarViewTest` 覆盖 Home 按钮回调，`MainActivityTest` 覆盖进度条存在、最大值和地址栏底部定位；全量 JVM 单测为 79 tests，0 failures/errors。
 
@@ -116,7 +124,7 @@
 
 ## 当前工作树边界
 
-本次开始前工作树为 clean，基线为 `5c602b8`。当前未提交内容仅是视频单击/双击修复、对应测试/资源及接管文档。提交前仍应审阅完整 diff 并取得用户确认；不自动 commit/push。
+本次开始前工作树为 clean，基线为 `3e38edf`。当前未提交内容仅是视频触摸路由、反馈样式、对应测试与文档。提交前仍应审阅完整 diff 并取得用户确认；不自动 commit/push。
 
 ## 当前架构入口
 

@@ -4,12 +4,15 @@ import android.content.Context
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
+import android.widget.TextView
 import android.webkit.ValueCallback
 import android.webkit.WebView
 import com.yohuohuohuo.browser.R
 import com.yohuohuohuo.browser.gesture.VideoJsBridge
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,7 +27,7 @@ import java.util.concurrent.TimeUnit
 class VideoGestureOverlayTest {
 
     @Test
-    fun `single tap shows browser controls without toggling playback`() {
+    fun `single tap keeps the original touch sequence for the page`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val webView = RecordingWebView(context)
         val bridge = VideoJsBridge(context)
@@ -33,34 +36,34 @@ class VideoGestureOverlayTest {
         overlay.attach(bridge)
         overlay.enterFullscreenTouchMode()
 
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 10f, 10f))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_UP, 10f, 10f))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 10f, 10f)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 10f, 10f)))
 
         assertEquals(0, overlay.childCount)
         shadowOf(android.os.Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
-        assertTrue(overlay.childCount > 0)
+        assertEquals(0, overlay.childCount)
         assertTrue(webView.scripts.none { it.contains("togglePlay") })
         overlay.detach()
         bridge.close()
     }
 
     @Test
-    fun `late second touch still confirms the first tap before starting a new gesture`() {
+    fun `late second touch starts another native page gesture`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val overlay = VideoGestureOverlay(context)
         overlay.attach(VideoJsBridge(context))
         overlay.enterFullscreenTouchMode()
 
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 10f, 10f, 0))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_UP, 10f, 10f, 10))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 30f, 30f, 400))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 10f, 10f, 0)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 10f, 10f, 10)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 30f, 30f, 400)))
 
-        assertTrue(overlay.childCount > 0)
+        assertEquals(0, overlay.childCount)
         overlay.detach()
     }
 
     @Test
-    fun `double tap toggles playback without showing single tap controls`() {
+    fun `double tap passes first tap and consumes the second tap`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val webView = RecordingWebView(context)
         val bridge = VideoJsBridge(context)
@@ -69,10 +72,10 @@ class VideoGestureOverlayTest {
         overlay.attach(bridge)
         overlay.enterFullscreenTouchMode()
 
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 10f, 10f, 0))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_UP, 10f, 10f, 10))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 10f, 10f, 100))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_UP, 10f, 10f, 110))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 10f, 10f, 0)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 10f, 10f, 10)))
+        assertEquals(true, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 10f, 10f, 100)))
+        assertEquals(true, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 10f, 10f, 110)))
         shadowOf(android.os.Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
 
         assertEquals(1, webView.scripts.count { it.contains("togglePlay") })
@@ -82,7 +85,7 @@ class VideoGestureOverlayTest {
     }
 
     @Test
-    fun `browser controls can toggle playback and are hidden on reset`() {
+    fun `horizontal swipe takes over after the native down event`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val webView = RecordingWebView(context)
         val bridge = VideoJsBridge(context)
@@ -90,19 +93,36 @@ class VideoGestureOverlayTest {
         val overlay = VideoGestureOverlay(context)
         overlay.attach(bridge)
         overlay.enterFullscreenTouchMode()
-        overlay.onTouchEvent(event(MotionEvent.ACTION_DOWN, 10f, 10f))
-        overlay.onTouchEvent(event(MotionEvent.ACTION_UP, 10f, 10f))
-        shadowOf(android.os.Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
-
-        val controls = overlay.findViewById<View>(R.id.videoControls)
-        assertEquals(View.VISIBLE, controls.visibility)
-        controls.findViewById<View>(R.id.videoTogglePlayback).performClick()
-        assertEquals(1, webView.scripts.count { it.contains("togglePlay") })
-
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 10f, 10f)))
+        assertEquals(true, overlay.handleWebViewTouch(event(MotionEvent.ACTION_MOVE, 80f, 10f)))
+        assertEquals(true, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 80f, 10f)))
+        assertEquals(listOf(35f), webView.seekDeltas())
         overlay.resetGesture()
-        assertEquals(View.GONE, controls.visibility)
+        val feedback = overlay.findViewById<View>(R.id.feedbackText).parent as View
+        assertEquals(View.GONE, feedback.visibility)
         overlay.detach()
         bridge.close()
+    }
+
+    @Test
+    fun `long press hint uses a restrained text treatment`() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val overlay = VideoGestureOverlay(context)
+        overlay.attach(VideoJsBridge(context))
+        overlay.enterFullscreenTouchMode()
+
+        overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 100f, 100f))
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(
+            ViewConfiguration.getLongPressTimeout().toLong() + 50L,
+            TimeUnit.MILLISECONDS
+        )
+
+        val feedbackText = overlay.findViewById<TextView>(R.id.feedbackText)
+        @Suppress("DEPRECATION")
+        val textSizeSp = feedbackText.textSize / context.resources.displayMetrics.scaledDensity
+        assertTrue(textSizeSp <= 14f)
+        assertFalse(feedbackText.typeface.isBold)
+        overlay.detach()
     }
 
     @Test
@@ -149,7 +169,7 @@ class VideoGestureOverlayTest {
     }
 
     @Test
-    fun `controls do not intercept page touches outside inline video bounds`() {
+    fun `page touches outside inline video bounds are not intercepted`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val parent = FrameLayout(context)
         var pageTouches = 0
@@ -179,23 +199,11 @@ class VideoGestureOverlayTest {
             View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY)
         )
         parent.layout(0, 0, 320, 600)
-        val controls = overlay.findViewById<View>(R.id.videoControls)
-        assertEquals(20, controls.left)
-        assertEquals(300, controls.right)
-        assertEquals(220, controls.bottom)
-        overlay.setInlineContentTopInset(60)
-        parent.measure(
-            View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY)
-        )
-        parent.layout(0, 0, 320, 600)
-        assertEquals(280, controls.bottom)
-
+        assertEquals(0, overlay.childCount)
         parent.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 50f, 580f))
         parent.dispatchTouchEvent(event(MotionEvent.ACTION_UP, 50f, 580f))
         assertEquals(2, pageTouches)
         overlay.setActiveVideoBounds(null)
-        assertEquals(View.GONE, controls.visibility)
         overlay.detach()
     }
 
@@ -213,7 +221,7 @@ class VideoGestureOverlayTest {
         )
 
         assertEquals(
-            true,
+            false,
             overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 150f, 150f))
         )
         assertEquals(
@@ -224,6 +232,39 @@ class VideoGestureOverlayTest {
             true,
             overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 20f, 20f))
         )
+        overlay.detach()
+    }
+
+    @Test
+    fun `drag near the bottom of a video stays with the page controls`() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val webView = RecordingWebView(context)
+        val bridge = VideoJsBridge(context)
+        bridge.attach(webView)
+        val overlay = VideoGestureOverlay(context)
+        overlay.attach(bridge)
+        overlay.visibility = View.VISIBLE
+        overlay.setActiveVideoBounds(RectF(0f, 0f, 320f, 240f))
+
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 100f, 225f)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_MOVE, 200f, 225f)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 200f, 225f)))
+        assertTrue(webView.seekDeltas().isEmpty())
+        overlay.detach()
+        bridge.close()
+    }
+
+    @Test
+    fun `fullscreen bottom control drag stays with the custom view`() {
+        val context: Context = RuntimeEnvironment.getApplication()
+        val overlay = VideoGestureOverlay(context)
+        overlay.attach(VideoJsBridge(context))
+        overlay.enterFullscreenTouchMode()
+        overlay.layout(0, 0, 320, 600)
+
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 100f, 585f)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_MOVE, 200f, 585f)))
+        assertEquals(false, overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 200f, 585f)))
         overlay.detach()
     }
 
