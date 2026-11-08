@@ -15,7 +15,8 @@ class BrowserWebViewClient(
     private val onPageFinishedCallback: (WebView, String) -> Unit,
     private val onReceivedErrorCallback: (String, String) -> Unit,
     private val onSslErrorCallback: (String) -> Unit = {},
-    private val onRenderProcessGoneCallback: (Boolean) -> Unit = {}
+    private val onRenderProcessGoneCallback: (Boolean) -> Unit = {},
+    private val onHistoryUpdatedCallback: (WebView, String) -> Unit = { _, _ -> }
 ) : WebViewClient() {
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -27,6 +28,13 @@ class BrowserWebViewClient(
         super.onPageFinished(view, url)
         if (view != null && url != null) {
             onPageFinishedCallback(view, url)
+        }
+    }
+
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        super.doUpdateVisitedHistory(view, url, isReload)
+        if (view != null && url != null) {
+            onHistoryUpdatedCallback(view, url)
         }
     }
 

@@ -54,6 +54,10 @@ class BrowserViewModel : ViewModel() {
         _uiState.value = _uiState.value.copy(loadingProgress = progress)
     }
 
+    fun onHistoryUpdated(url: String) {
+        _uiState.value = _uiState.value.copy(currentUrl = url)
+    }
+
     fun onReceivedError(message: String, failingUrl: String) {
         _uiState.value = _uiState.value.copy(
             isLoading = false,

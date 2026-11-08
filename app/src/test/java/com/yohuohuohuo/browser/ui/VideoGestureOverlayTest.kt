@@ -27,6 +27,40 @@ import java.util.concurrent.TimeUnit
 class VideoGestureOverlayTest {
 
     @Test
+    fun `vertical sides follow actual touch container width after window resizing`() {
+        val controller = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        val activity = controller.get()
+        val metrics = activity.resources.displayMetrics
+        val originalWidth = metrics.widthPixels
+        metrics.widthPixels = 320
+        val bridge = VideoJsBridge(activity)
+        val overlay = VideoGestureOverlay(activity)
+        overlay.attach(bridge)
+        overlay.enterFullscreenTouchMode()
+        activity.window.attributes = activity.window.attributes.apply { screenBrightness = 0.5f }
+        try {
+            overlay.layout(0, 0, 320, 600)
+            overlay.layout(0, 0, 600, 600)
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 200f, 300f, 0))
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_MOVE, 200f, 100f, 20))
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 200f, 100f, 40))
+            assertEquals(0.7f, activity.window.attributes.screenBrightness, 0.001f)
+
+            // Same local x moves to the right half when the window narrows again.
+            overlay.layout(0, 0, 300, 600)
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_DOWN, 200f, 300f, 500))
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_MOVE, 200f, 100f, 520))
+            overlay.handleWebViewTouch(event(MotionEvent.ACTION_UP, 200f, 100f, 540))
+            assertEquals(0.7f, activity.window.attributes.screenBrightness, 0.001f)
+        } finally {
+            metrics.widthPixels = originalWidth
+            overlay.detach()
+            bridge.close()
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test
     fun `single tap keeps the original touch sequence for the page`() {
         val context: Context = RuntimeEnvironment.getApplication()
         val webView = RecordingWebView(context)

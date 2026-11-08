@@ -63,6 +63,21 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `at signs outside authority do not alter host validation`() {
+        listOf(
+            "https://example.com/@alice", "example.com/path/@alice",
+            "https://example.com?email=@alice", "https://example.com#@alice",
+            "http://user:pass@example.com:8080/@alice?q=@bob#@carol",
+            "http://127.0.0.1:3000/@alice", "http://[::1]:8443/@alice",
+            "https://例子.com/@alice"
+        ).forEach { assertTrue(it, UrlUtils.isUrl(it)) }
+        listOf(
+            "https://invalid/@example.com", "https://example.com:99999/@valid.com",
+            "http://[::1]:abc/@valid.com", "https:///@example.com"
+        ).forEach { assertFalse(it, UrlUtils.isUrl(it)) }
+    }
+
+    @Test
     fun `isUrl returns false for invalid port`() {
         assertFalse(UrlUtils.isUrl("example.com:99999"))
         assertFalse(UrlUtils.isUrl("example.com:abc"))

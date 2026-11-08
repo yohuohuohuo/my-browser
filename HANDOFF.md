@@ -2,12 +2,20 @@
 
 ## 快照
 
-- 更新时间：2026-09-18
+- 更新时间：2026-11-08
 - 仓库：`/Users/qiuyupan/git_workspace/my-browser`
-- 分支：`feature/yobrowser-impl`
-- 最后提交：`3e38edf`（以当前 `git log` 为准）
-- 工作树：此前视频触摸路由修复及本次媒体生命周期修复均未提交；更早的历史章节仅作背景，以当前 `git status` 为准。
+- 分支：`main`（由 `feature/yobrowser-impl` 快进合入本轮修复）
+- 交付提交：六项修复、正式回归与相关文档合并为一次提交，具体提交号以 `git log` 为准；接管基线为 `1cc11a2`。
+- 工作树：用户已确认提交边界，`.memsearch/` 保留本地且不纳入提交。当前未配置 Git 远端，推送主分支需提供目标仓库地址。下文 2026-09 历史章节仅作背景。
 - 接管结论：当前实现可构建和通过 JVM/Lint，但还不能称为已发布或已完成真机验收的 Android 浏览器。
+
+## 2026-11-08 APK 打包交付
+
+- 执行 `./gradlew --offline assembleDebug assembleRelease`，结果 `BUILD SUCCESSFUL in 4s`；沿用当前工作树的六项修复，无生产代码或构建配置变更。
+- 可安装 Debug APK：`app/build/outputs/apk/debug/app-debug.apk`，6,074,924 bytes；`apksigner verify` 通过，Android Debug 证书、APK v2 签名。
+- 未签名 Release APK：`app/build/outputs/apk/release/app-release-unsigned.apk`，1,545,123 bytes；仍需正式签名后安装/发布。
+- Debug SHA-256：`d0d1e79e5f0f22fbbba86a3c8577a3d4bb0e5985cc690ee90170791641247676`；Release SHA-256：`403b9ead2d6e57d682f5843ad39b7e8239ae08110822d8ce360dda20d9d24c99`。校验文件位于各 APK 同目录的 `.sha256` 文件。
+- 两份 APK 的 ZIP 完整性检查通过，内置两份 JS 与当前源码逐字节一致。本次仅打包及产物验证，未重复单测、全量 Lint 或设备验收，未 commit/push。
 
 ## 当前已完成能力
 
@@ -27,7 +35,22 @@
 - Release R8/resource shrinking、JavaScript bridge ProGuard 保留规则。
 - `UrlUtils`、`BrowserViewModel`、`BrowserWebView`、视频 detector/bridge/overlay、UA、WebChrome/WebViewClient 的 JVM 单测。
 
-## 2026-09-18 页面不可见时的媒体处理
+## 2026-11-08 六项审查问题修复
+
+- WebView replacement 在 activeWebView 切换前统一退出全屏，移除旧 custom view/host、恢复 overlay 位置和模式、方向与系统栏；callback 只通知一次。
+- Activity/Fragment view 重建保存并恢复 WebView 前后历史和当前 URL；恢复失败或保存时仍有未提交导航则重载最新 URL。Home 的空白状态不保存旧历史；恢复页面完成后暂停媒体，不发出自动播放指令。
+- 全屏 video 或全屏容器内的 video 统一成为 JS 控制/时间/尺寸读取目标；退出全屏后仍保留可见且曾播放的视频，包括暂停态。
+- 亮度/音量分区读取触摸 overlay 当前宽度，支持横竖屏和窗口变化；原手势阈值、方向和底部网页控件保留区保持。
+- URL 先切出 authority 再解析 user info，path/query/fragment 中的 `@` 不再影响 host 校验。
+- `doUpdateVisitedHistory()` 同步当前 WebView 的同文档地址；文档加载 URL 单独跟踪，完成回调保留最新 history URL，同文档更新不推进 bridge page generation。
+- 生产改动：`BrowserFragment.kt`、`BrowserViewModel.kt`、`web/BrowserWebViewClient.kt`、`gesture/VideoGestureDetector.kt`、`ui/VideoGestureOverlay.kt`、`util/UrlUtils.kt`、`assets/video_bridge.js`。
+- 正式回归：新增 `BrowserLifecycleRegressionTest.kt`（7 条）；扩展 detector/overlay、URL 和 JS 测试。RED 阶段 JVM 38 条中 7 失败、Node 新增 2 失败；GREEN 阶段 JVM 111/111、Node 6/6。
+- 完整 Gradle 单测/Debug/Release/Lint 通过；联网 Lint 为 0 errors、35 warnings（27 个依赖版本提示、8 个 Android/UI 告警）。两份 JS 语法与空白检查通过。详细证据和设备边界见 `VERIFICATION.md`。
+- 独立 reviewer 只读复核这六项及直接回归，未发现可执行的 P1/P2；未扩大扫描范围。
+- 已补 API 31/System WebView 91 的有限本地 smoke：@ 路径、Hash/pushState/back、重建恢复历史、Home 不复活、B 全屏 seek 目标、横屏亮度分区、全屏 renderer crash 后恢复及后续全屏、重建后暂停。仅本地无声视频夹具；真机/真实站点、跨域媒体和版本矩阵仍待验收。临时服务/emulator 验证后关闭。
+- 执行记录：`docs/superpowers/plans/2026-11-08-six-regression-fixes.md`；失败与成功日志保留于 `/private/tmp/yobrowser-fixes-20261108/`，原审查 `/private/tmp/yobrowser-audit-20261108/` 保留。
+
+## 历史：2026-09-18 页面不可见时的媒体处理
 
 - Home 按钮和无历史记录时的返回键都卸载旧 WebView 并创建空白的新 WebView。原页面历史和状态不再保留，这是用户明确要求的 Home 语义。
 - 旧 WebView 的加载、错误、进度、renderer、全屏回调仅在它仍是当前 WebView 时生效；同一 WebView 上旧导航的完成回调不能覆盖新 URL，错误后的完成回调不能清掉错误页。
@@ -124,7 +147,7 @@
 
 ## 当前工作树边界
 
-本次开始前工作树为 clean，基线为 `3e38edf`。当前未提交内容仅是视频触摸路由、反馈样式、对应测试与文档。提交前仍应审阅完整 diff 并取得用户确认；不自动 commit/push。
+本轮开始前基线为 `1cc11a2`，仅有未跟踪 `.memsearch/`。2026-11-08 用户明确授权提交六项修复、测试及相关文档，排除 `.memsearch/`，并交付至 `main`。主分支通过快进保留原实现历史；没有强制推送或重写历史。当前尚无远端配置，待目标仓库地址后完成推送。
 
 ## 当前架构入口
 
@@ -143,7 +166,7 @@
 
 ## 下一步建议
 
-按优先级执行 `TASKS.md`。最先做设备/emulator smoke test 和当前未提交 diff 的分组审阅；不要先做无依据的架构重构。
+本轮以六项修复及必要验证为停止条件；后续按 `TASKS.md` 补充真实设备/站点矩阵与签名验收，不自动扩大全仓复审。
 
 ## 证据索引
 

@@ -102,7 +102,7 @@ class VideoGestureOverlay @JvmOverloads constructor(
                 feedbackRequestGeneration++
                 hideFeedback()
             }
-        })
+        }, viewportWidth = { width })
     }
 
     fun setActiveVideoBounds(bounds: RectF?, contentScale: Float = 1f) {

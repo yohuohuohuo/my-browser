@@ -38,17 +38,9 @@ object UrlUtils {
             else -> trimmed
         }
 
-        // 去掉用户信息 user:pass@
-        val withoutUserInfo = if (withoutScheme.contains("@")) {
-            val atIndex = withoutScheme.lastIndexOf("@")
-            withoutScheme.substring(atIndex + 1)
-        } else {
-            withoutScheme
-        }
-        if (withoutUserInfo.isEmpty()) return false
-
-        // 提取 host:port 部分（去掉路径、查询、片段）
-        val hostPort = withoutUserInfo.substringBefore("/").substringBefore("?").substringBefore("#")
+        // user info 只属于 authority，路径、查询和片段中的 @ 不参与 host 解析。
+        val authority = withoutScheme.substringBefore("/").substringBefore("?").substringBefore("#")
+        val hostPort = authority.substringAfterLast("@")
         if (hostPort.isEmpty()) return false
 
         // IPv6 必须使用标准的方括号形式，避免把地址中的冒号误判成端口。

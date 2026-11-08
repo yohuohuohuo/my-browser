@@ -13,7 +13,8 @@ import kotlin.math.abs
  */
 class VideoGestureDetector(
     context: Context,
-    private val listener: GestureListener
+    private val listener: GestureListener,
+    private val viewportWidth: () -> Int
 ) {
     interface GestureListener {
         fun onLongPressStart()
@@ -32,7 +33,6 @@ class VideoGestureDetector(
 
     private enum class ScrollDirection { HORIZONTAL, VERTICAL_LEFT, VERTICAL_RIGHT }
 
-    private val width = context.resources.displayMetrics.widthPixels.toFloat()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
@@ -142,7 +142,7 @@ class VideoGestureDetector(
                 scrollDirection = if (abs(totalDeltaX) > abs(totalDeltaY)) {
                     ScrollDirection.HORIZONTAL
                 } else {
-                    if (downX < width / 2) ScrollDirection.VERTICAL_LEFT
+                    if (downX < viewportWidth() / 2f) ScrollDirection.VERTICAL_LEFT
                     else ScrollDirection.VERTICAL_RIGHT
                 }
             }

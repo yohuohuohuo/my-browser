@@ -5,9 +5,9 @@
 - 仓库：`/Users/qiuyupan/git_workspace/my-browser`
 - Android application module：`app`
 - 包名：`com.yohuohuohuo.browser`
-- 当前工作分支：`feature/yobrowser-impl`
-- 当前 `HEAD`：`c1e6973`（最后一次提交为 UrlUtils/SearchEngine 单测；工作树另有大量未提交实现）
-- 当前状态：源码可以通过 JVM 单测、Debug/Release 构建和 Lint，但当前分支尚未完成提交、签名和真机验收。
+- 当前工作分支：`main`（本轮修复由 `feature/yobrowser-impl` 快进合入）
+- 本轮接管基线：`1cc11a2`；交付提交以 `git log` 为准，`.memsearch/` 不纳入本次提交。
+- 当前状态：源码可以通过 JVM 单测、Debug/Release 构建和 Lint；最新验证及 emulator/真机边界见 `VERIFICATION.md`，Release 仍未签名。
 
 ## 新 agent 的阅读顺序
 
@@ -35,7 +35,7 @@ git log -5 --oneline --decorate
 - 工作树已有用户改动。不要运行 `git reset --hard`、`git checkout --`、批量删除、无授权的 `stash` 或覆盖式生成命令。
 - 修改前先记录 `git status --short`，并区分已跟踪修改、删除文件和未跟踪文件。
 - 只修改当前任务涉及的文件；不要为了“整理”而重写其他未提交文件。
-- 任何提交前先让用户确认提交边界；本项目当前未要求自动 commit 或 push。
+- 任何提交前先让用户确认提交边界；2026-11-08 用户已授权提交本轮六项修复、测试和相关文档，排除 `.memsearch/`，并推送到主分支。后续范围仍需另行确认。
 - 本项目文档使用中文；代码中的 API、类名、命令和 Android 专有名词保持原文。
 
 ## 技术与构建约束

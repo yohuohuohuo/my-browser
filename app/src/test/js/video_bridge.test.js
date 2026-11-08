@@ -7,10 +7,14 @@ const vm = require('node:vm');
 function makeVideo({ paused, width = 320, height = 180 }) {
     const events = {};
     return {
+        tagName: 'VIDEO',
         paused,
         readyState: 2,
         duration: 120,
         currentTime: 0,
+        videoWidth: width,
+        videoHeight: height,
+        playbackRate: 1,
         getBoundingClientRect: () => ({ left: 0, top: 0, right: width, bottom: height, width, height }),
         addEventListener(name, listener) { events[name] = listener; },
         play() { this.paused = false; events.play?.(); },
@@ -20,11 +24,13 @@ function makeVideo({ paused, width = 320, height = 180 }) {
 
 function makeHarness(videos) {
     const timers = [];
+    const documentEvents = {};
     const document = {
         body: {},
         documentElement: { clientWidth: 320, clientHeight: 180 },
         querySelectorAll: () => videos,
-        addEventListener() {}
+        fullscreenElement: null,
+        addEventListener(name, listener) { documentEvents[name] = listener; }
     };
     const window = {
         innerWidth: 320,
@@ -45,7 +51,11 @@ function makeHarness(videos) {
     window.__videoBridge.setCallbacks(() => active++, () => inactive++, () => {});
     const flush = () => { while (timers.length) timers.shift()(); };
     flush();
-    return { bridge: window.__videoBridge, flush, getActive: () => active, getInactive: () => inactive };
+    return {
+        bridge: window.__videoBridge, document, flush,
+        fullscreenChanged: () => documentEvents.fullscreenchange(),
+        getActive: () => active, getInactive: () => inactive
+    };
 }
 
 test('a video paused after playing remains active and can be resumed', () => {
@@ -87,4 +97,54 @@ test('pausing a smaller active video does not switch controls to a larger paused
     assert.equal(active.paused, false);
     assert.equal(other.paused, true);
     assert.equal(harness.getInactive(), 0);
+});
+
+test('all controls and readings target fullscreen video after selecting an inline video', () => {
+    const inline = makeVideo({ paused: false, width: 100, height: 100 });
+    const fullscreen = makeVideo({ paused: false });
+    inline.currentTime = 20;
+    fullscreen.currentTime = 40;
+    fullscreen.duration = 200;
+    const videos = [inline];
+    const harness = makeHarness(videos);
+    videos.push(fullscreen);
+    const bridge = harness.bridge;
+    harness.document.fullscreenElement = fullscreen;
+
+    assert.equal(bridge.getActiveVideoDimensions(), '320,180');
+    assert.equal(bridge.getCurrentTime(), 40);
+    assert.equal(bridge.getDuration(), 200);
+    bridge.seekBy(10);
+    bridge.setRate(3);
+    bridge.togglePlay();
+    assert.equal(fullscreen.currentTime, 50);
+    assert.equal(fullscreen.playbackRate, 3);
+    assert.equal(fullscreen.paused, true);
+    bridge.play();
+    assert.equal(fullscreen.paused, false);
+    bridge.pause();
+    assert.equal(fullscreen.paused, true);
+    assert.equal(inline.currentTime, 20);
+    assert.equal(inline.playbackRate, 1);
+    assert.equal(inline.paused, false);
+});
+
+test('fullscreen container selects its video and keeps the paused selection after exiting', () => {
+    const inline = makeVideo({ paused: false, width: 100, height: 100 });
+    const fullscreen = makeVideo({ paused: false });
+    const videos = [inline];
+    const harness = makeHarness(videos);
+    videos.push(fullscreen);
+    harness.document.fullscreenElement = { querySelectorAll: () => [fullscreen] };
+    harness.fullscreenChanged();
+    harness.bridge.togglePlay();
+    harness.flush();
+    assert.equal(fullscreen.paused, true);
+    assert.equal(inline.paused, false);
+
+    harness.document.fullscreenElement = null;
+    harness.fullscreenChanged();
+    harness.bridge.togglePlay();
+    assert.equal(fullscreen.paused, false);
+    assert.equal(inline.paused, false);
 });

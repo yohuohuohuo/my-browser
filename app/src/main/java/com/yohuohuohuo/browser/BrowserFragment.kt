@@ -51,6 +51,9 @@ class BrowserFragment : Fragment() {
     private var toolbarVisibilityRunnable: Runnable? = null
     private var webViewTouchActive = false
     private var webViewPaused = false
+    private var currentDocumentUrl: String? = null
+    private var savedBrowserState: Bundle? = null
+    private var restoringPage = false
 
     private val currentWebView: BrowserWebView
         get() = activeWebView ?: binding.webView
@@ -67,6 +70,8 @@ class BrowserFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupWebView()
+        restoreBrowserState(savedBrowserState ?: savedInstanceState?.getBundle(KEY_BROWSER_STATE))
+        savedBrowserState = null
         observeState()
         binding.startupView.onSearchSubmitted = { query ->
             binding.startupView.clearInput()
@@ -131,6 +136,7 @@ class BrowserFragment : Fragment() {
         webView.webViewClient = BrowserWebViewClient(
             onPageStartedCallback = { url ->
                 if (webView === activeWebView) {
+                    currentDocumentUrl = url
                     if (!viewModel.uiState.value.showStartup) videoBridge.pauseAllMedia()
                     cancelPendingToolbarVisibility()
                     webViewTouchActive = false
@@ -149,10 +155,25 @@ class BrowserFragment : Fragment() {
                     val state = viewModel.uiState.value
                     if (url.equals(ABOUT_BLANK, ignoreCase = true)) {
                         if (state.currentUrl.isBlank()) viewModel.showStartup()
-                    } else if (!state.showStartup && state.error == null && url == state.currentUrl) {
-                        viewModel.onPageFinished(url, finishedWebView.title ?: "")
+                    } else if (!state.showStartup && state.error == null &&
+                        (url == currentDocumentUrl || url == state.currentUrl)
+                    ) {
+                        viewModel.onPageFinished(state.currentUrl, finishedWebView.title ?: "")
                         videoBridge.injectScript()
+                        if (restoringPage) {
+                            videoBridge.pauseAllMedia()
+                            restoringPage = false
+                        }
                     }
+                }
+            },
+            onHistoryUpdatedCallback = { historyWebView, url ->
+                val state = viewModel.uiState.value
+                if (historyWebView === activeWebView && url == historyWebView.url &&
+                    url.isNotBlank() && !url.equals(ABOUT_BLANK, ignoreCase = true) &&
+                    !state.showStartup && state.error == null
+                ) {
+                    viewModel.onHistoryUpdated(url)
                 }
             },
             onReceivedErrorCallback = { message, url ->
@@ -324,6 +345,10 @@ class BrowserFragment : Fragment() {
     }
 
     private fun replaceWebView(oldWebView: BrowserWebView) {
+        webChromeClient?.hideCustomViewFromHost()
+        resetVideoGestureState()
+        currentDocumentUrl = null
+        restoringPage = false
         videoBridge.detach()
         binding.videoGestureOverlay.detach()
         oldWebView.onTouchStateChanged = null
@@ -468,6 +493,7 @@ class BrowserFragment : Fragment() {
     }
 
     fun loadUrl(url: String) {
+        restoringPage = false
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && webViewPaused) {
             currentWebView.onResume()
             webViewPaused = false
@@ -480,6 +506,7 @@ class BrowserFragment : Fragment() {
 
     fun goBack(): Boolean {
         if (!currentWebView.canGoBack()) return false
+        restoringPage = false
         videoBridge.pauseAllMedia()
         return webViewManager.goBack(currentWebView)
     }
@@ -513,6 +540,41 @@ class BrowserFragment : Fragment() {
         showToolbar()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBundle(
+            KEY_BROWSER_STATE,
+            if (_binding != null) saveBrowserState() else savedBrowserState
+        )
+    }
+
+    private fun saveBrowserState(): Bundle = Bundle().apply {
+        val state = viewModel.uiState.value
+        if (!state.showStartup && state.currentUrl.isNotBlank()) {
+            putString(KEY_CURRENT_URL, state.currentUrl)
+            val history = Bundle()
+            currentWebView.saveState(history)
+            putBundle(KEY_WEBVIEW_STATE, history)
+        }
+    }
+
+    private fun restoreBrowserState(state: Bundle?) {
+        if (state == null) return
+        val url = state.getString(KEY_CURRENT_URL).orEmpty()
+        if (url.isBlank()) {
+            viewModel.showStartup()
+            return
+        }
+        currentDocumentUrl = url
+        restoringPage = true
+        viewModel.onPageStarted(url)
+        val restored = state.getBundle(KEY_WEBVIEW_STATE)?.let(currentWebView::restoreState)
+        if (restored?.currentItem?.url != url) {
+            // 无历史或保存时仍在导航中时，保留可恢复的历史并重载最新 URL。
+            webViewManager.loadUrl(currentWebView, url)
+        }
+    }
+
     private fun pauseHiddenPage() {
         if (_binding == null || viewModel.uiState.value.showStartup) return
         videoBridge.pauseAllMedia()
@@ -544,6 +606,7 @@ class BrowserFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        savedBrowserState = saveBrowserState()
         cancelPendingToolbarVisibility()
         webChromeClient?.hideCustomViewFromHost()
         webChromeClient = null
@@ -565,6 +628,9 @@ class BrowserFragment : Fragment() {
 
     private companion object {
         const val ABOUT_BLANK = "about:blank"
+        const val KEY_BROWSER_STATE = "browserState"
+        const val KEY_CURRENT_URL = "currentUrl"
+        const val KEY_WEBVIEW_STATE = "webViewState"
         const val TOOLBAR_SCROLL_THRESHOLD = 10
         const val TOOLBAR_SCROLL_IDLE_DELAY_MS = 300L
     }

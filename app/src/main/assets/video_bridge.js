@@ -37,6 +37,11 @@
     }
 
     function findActiveVideo() {
+        var fullscreenVideo = findFullscreenVideo();
+        if (fullscreenVideo) {
+            if (!fullscreenVideo.paused && fullscreenVideo.readyState >= 2) markVideoPlayed(fullscreenVideo);
+            return fullscreenVideo;
+        }
         var videos = document.querySelectorAll('video');
         if (activeVideo && Array.prototype.indexOf.call(videos, activeVideo) >= 0 &&
             isInViewport(activeVideo) && canHandleVideo(activeVideo)) {
@@ -223,7 +228,7 @@
             return v && !isNaN(v.duration) ? v.duration : 0;
         },
         getActiveVideoDimensions: function() {
-            var v = findFullscreenVideo() || activeVideo || findActiveVideo();
+            var v = findActiveVideo();
             if (!v) return "";
             var width = Number(v.videoWidth);
             var height = Number(v.videoHeight);

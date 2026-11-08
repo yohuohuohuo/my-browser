@@ -40,20 +40,21 @@ MainActivity
 
 ### 生命周期与页面状态
 
-1. `MainActivity` 创建 `BrowserFragment`，Fragment 显示启动页。
+1. `MainActivity` 创建 `BrowserFragment`；新会话显示启动页，有保存状态时恢复浏览上下文。
 2. 输入 URL 或搜索词后，`BrowserFragment.loadUrl()` 委托 `WebViewManager` 加载。
    两个输入入口共用 `handleInput()`，提交非空内容时先清除焦点并隐藏 IME，再发起加载。
 3. `BrowserWebViewClient.onPageStarted()` 推进 `VideoJsBridge.pageGeneration`、清理视频状态并更新 ViewModel。
-4. `onPageFinished()` 更新 URL/title/loading 状态，再注入 `video_bridge.js` 并注册带 generation 的 JS 回调。
+4. `doUpdateVisitedHistory()` 同步当前 WebView 的 history 地址，不推进 bridge generation；`onPageFinished()` 以单独记录的文档加载 URL 过滤旧完成回调，保留最新 history URL 并更新 title/loading，再注入带 generation 的视频回调。
 5. 页面错误只对主 frame 更新 `BrowserError`；SSL 错误直接拒绝并报告。
-6. renderer gone 时旧 WebView 被停载、移除、销毁，创建 `BrowserWebView`，重新装配 client/bridge/overlay，并尝试恢复 URL。
+6. renderer gone 时先退出全屏，再停载、移除、销毁旧 WebView；创建新 `BrowserWebView`，重新装配 client/bridge/overlay，并恢复最新 URL。
 7. Fragment view 销毁时隐藏全屏 custom view、detach bridge/overlay、销毁 WebView；Fragment 销毁时 close bridge scope。
+8. Activity/Fragment view 重建使用 WebView `saveState/restoreState` 恢复前后导航历史，失败则重载最新 URL；恢复完成暂停媒体，Home 的空白新 WebView 不复活旧页面。
 
 ### 视频触摸数据流
 
 ```text
 DOM video events / MutationObserver / scroll / resize / 1s polling
-  -> findActiveVideo(): 保持已选且可见的视频；首次选择优先播放视频，无播放时仅选曾播放过的可见暂停视频
+  -> findActiveVideo(): 全屏 video 优先；普通模式保持已选且可见的视频，首次选择优先播放视频，无播放时仅选曾播放过的可见暂停视频
   -> getBoundingClientRect()
   -> AndroidBridge.onVideoBounds(generation, left, top, width, height)
   -> RectF * WebView.scale
@@ -88,4 +89,4 @@ DOM video events / MutationObserver / scroll / resize / 1s polling
 - JVM/Robolectric：`app/src/test`，覆盖 ViewModel、WebView touch routing、视频 detector/bridge/overlay、UA、URL/search、WebChrome/WebViewClient。
 - 静态：JavaScript `node --check`、Kotlin/Android Lint、`git diff --check`。
 - 构建：Debug APK、R8 Release APK。
-- 缺失层：当前没有 `app/src/androidTest`，也没有真实设备/emulator WebView 网站交互证据。
+- 缺失层：当前没有 `app/src/androidTest`。API 31 emulator 已有有限本地夹具 smoke，真机、真实站点和 WebView 版本矩阵仍缺失。

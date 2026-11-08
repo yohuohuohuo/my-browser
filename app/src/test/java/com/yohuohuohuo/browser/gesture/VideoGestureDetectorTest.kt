@@ -34,7 +34,7 @@ class VideoGestureDetectorTest {
             override fun onLeftVerticalScroll(deltaY: Float) { events.add("leftVertical:$deltaY") }
             override fun onRightVerticalScroll(deltaY: Float) { events.add("rightVertical:$deltaY") }
             override fun onScrollEnd() { events.add("scrollEnd") }
-        })
+        }, viewportWidth = { context.resources.displayMetrics.widthPixels })
     }
 
     private fun down(x: Float, y: Float, time: Long = 0): MotionEvent =

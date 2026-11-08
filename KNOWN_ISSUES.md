@@ -4,12 +4,12 @@
 
 ## P0：验证阻塞
 
-### 没有真实 WebView/设备交互证据
+### 真机与真实站点交互矩阵未完成
 
-- 状态：已确认。
-- 证据：本机 2026-08-24 执行 `adb devices` 时，ADB server 因 `Operation not permitted` 无法启动。
-- 影响：网页点击透传、视频坐标、全屏系统栏、renderer crash、媒体播放策略仍未在真实 Chromium/WebView 上确认。
-- 下一步：见 `TASKS.md` 的 P0 设备 smoke test；在设备可用前，不能宣称视频交互已发布级验证。
+- 状态：已确认；2026-11-08 已在独立 API 31 emulator/System WebView 91 上执行有限本地 smoke，具体通过项见 `VERIFICATION.md`。
+- 证据：本轮 ADB 经单次审批可以启动，Debug APK 安装和本地导航/history/重建 smoke 通过；仍无真机或真实站点矩阵。此前沙箱内 ADB 失败仅为历史环境证据。
+- 影响：多个 WebView 版本、真机视频坐标、系统栏、renderer crash 与跨域媒体策略仍不能视为发布级验证。
+- 下一步：见 `TASKS.md` 的真机矩阵；不将 Robolectric、Node 或单版本本地夹具推广为全部站点保证。
 
 ## P1：发布风险
 
@@ -50,7 +50,7 @@
 ### 活动视频选择是启发式策略
 
 - 状态：已确认设计限制，未定义为缺陷。
-- 当前策略：`video_bridge.js` 只扫描当前 document 的 `<video>`，优先保持已选且可见的视频；首次选择优先视口内最大的播放视频，无播放视频时仅回退到曾播放过的可见暂停视频。
+- 当前策略：`video_bridge.js` 只扫描当前 document 的 `<video>`，全屏 video/全屏容器内 video 优先；普通模式保持已选且可见的视频，首次选择优先视口内最大的播放视频，无播放时仅回退到曾播放过的可见暂停视频。全屏误控另一视频的问题已有 Node 回归和修复。
 - 影响：iframe、shadow DOM、多个同时播放视频、自定义 canvas 播放器和复杂 CSS transform 页面可能无法识别或选择错误。
 - 下一步：在真实目标站点采样后再决定是否扩展 renderer；不要先抽象不存在的公共 pipeline。
 
